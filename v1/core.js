@@ -1,17 +1,32 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.0.0
+ * ACTIVE IA — CORE v1.2.0
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
- * Versão completa entregue junto ao primeiro simulador v2:
- * "Doença Cerebrovascular: Atualização Clínica e Cirúrgica".
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
  *
+ * MUDANÇAS DA v1.1.0 PARA v1.2.0:
+ *   - NOVO: ActiveIA.export.linkedinCaption — gera texto pronto e personalizado
+ *           para postagem no LinkedIn, baseado na sessão do aluno. Explicita a
+ *           metodologia Active IA para a audiência do LinkedIn (publicidade
+ *           dupla: aluno + Galícia).
+ *   - NOVO: ActiveIA.export.shareLinkedInModal — abre modal Galícia com preview
+ *           do card PNG + texto pronto + botões copiar/baixar/abrir LinkedIn.
+ *   - AJUSTADO: ActiveIA.export.linkedinCard agora inclui rodapé reforçado
+ *               com "MÉTODO ACTIVE IA · Galícia Educação" e métricas de processo
+ *               (turnos de decisão, consultas profissionais) além das competências.
+ *   - BORDÃO INSTITUCIONAL: "Conhecer para decidir. Decidir para fazer diferença."
+ *           — usado no card visual e no texto sugerido. Memorável, repetível.
+ *
+ * MUDANÇAS DA v1.0.0 PARA v1.1.0:
+ *   - NOVO: ActiveIA.modal — sistema de modal Galícia reusável
+ *   - NOVO: ActiveIA.consultant — módulo de consultor colegial
+ *   - CORREÇÃO: exportSessionPDF usa modal Galícia em vez de alert() nativo
+ *
  * Uso pelo simulador específico:
  *   <script src="https://.../v1/core.js"></script>
- *   ...
  *   <script>ActiveIA.init(SIMULATOR_CONFIG);</script>
  *
  * ============================================================================
@@ -24,7 +39,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.0.0';
+  const CORE_VERSION = '1.2.0';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -597,7 +612,12 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     const html = buildDashboardHTML(state, diagnosis, config);
     const win = window.open('', '_blank');
     if (!win) {
-      alert('Permita pop-ups para gerar o PDF. Como alternativa, baixe o HTML e imprima.');
+      showModal({
+        eyebrow: 'EXPORTAR PDF',
+        title: 'Pop-ups bloqueados',
+        body: 'O navegador bloqueou a abertura da janela de impressão. Permita pop-ups para este site, ou use a opção "Baixar HTML" para depois imprimir manualmente.',
+        actions: [{ label: 'Entendi', primary: true, close: true }]
+      });
       return;
     }
     win.document.write(html);
@@ -617,11 +637,11 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     canvas.height = 1080;
     const ctx = canvas.getContext('2d');
 
-    // Fundo Galícia
+    // ====== Fundo Galícia ======
     ctx.fillStyle = '#FAF7F2';
     ctx.fillRect(0, 0, 1080, 1080);
 
-    // Faixa decorativa superior
+    // Faixa decorativa superior (gradiente Galícia)
     const grad = ctx.createLinearGradient(0, 0, 1080, 0);
     grad.addColorStop(0, '#0074C7');
     grad.addColorStop(0.5, '#00BDFF');
@@ -629,96 +649,150 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 1080, 8);
 
-    // Header — Active IA
+    // ====== HEADER ======
     ctx.fillStyle = '#0074C7';
     ctx.font = '600 22px "JetBrains Mono", monospace';
     ctx.fillText('ACTIVE IA · GALÍCIA EDUCAÇÃO', 80, 80);
 
-    // Linha
+    // Linha divisória
     ctx.strokeStyle = '#E2E8F0';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(80, 110); ctx.lineTo(1000, 110); ctx.stroke();
 
-    // Nome do aluno
+    // ====== NOME DO ALUNO ======
     ctx.fillStyle = '#0a1628';
     ctx.font = '500 56px "Playfair Display", Georgia, serif';
     const userName = state.userName || 'Aluno(a)';
     ctx.fillText(userName, 80, 200);
 
-    // Linha "concluiu"
     ctx.fillStyle = '#475569';
     ctx.font = '400 22px "Montserrat", sans-serif';
-    ctx.fillText('concluiu o simulador', 80, 240);
+    ctx.fillText('concluiu a simulação profissional', 80, 240);
 
-    // Nome do simulador
+    // ====== NOME DO SIMULADOR (até 2 linhas) ======
     ctx.fillStyle = '#0a1628';
     ctx.font = '600 34px "Playfair Display", Georgia, serif';
     const simName = config.name;
-    const maxLineWidth = 920;
-    const words = simName.split(' ');
-    let line = '';
+    const titleLines = wrapText(ctx, simName, 920).slice(0, 2);
     let y = 300;
-    for (const w of words) {
-      const test = line + w + ' ';
-      if (ctx.measureText(test).width > maxLineWidth && line) {
-        ctx.fillText(line.trim(), 80, y);
-        line = w + ' ';
-        y += 44;
-      } else {
-        line = test;
-      }
+    for (const ln of titleLines) {
+      ctx.fillText(ln, 80, y);
+      y += 44;
     }
-    if (line) ctx.fillText(line.trim(), 80, y);
+    const titleEndY = y + 4;
 
-    // Badge de nível
+    // ====== BADGE DE NÍVEL + MÓDULO ======
     const levelLabel = config.levels[state.level].label.toUpperCase();
+    const badgeY = titleEndY + 18;
     ctx.fillStyle = '#0074C7';
-    ctx.fillRect(80, y + 40, 220, 50);
+    ctx.fillRect(80, badgeY, 220, 50);
     ctx.fillStyle = '#FAF7F2';
     ctx.font = '600 20px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`NÍVEL ${levelLabel}`, 190, y + 72);
+    ctx.fillText(`NÍVEL ${levelLabel}`, 190, badgeY + 32);
     ctx.textAlign = 'left';
 
-    // Headline metric (sempre ~y=560)
+    // Módulo (ao lado do badge)
+    if (config.module) {
+      ctx.fillStyle = '#475569';
+      ctx.font = '400 16px "JetBrains Mono", monospace';
+      ctx.fillText(config.module.toUpperCase(), 320, badgeY + 32);
+    }
+
+    // ====== HEADLINE METRIC ======
+    const blockY = badgeY + 100;
     const headline = (diagnosis && diagnosis.headline_metric) || '';
     ctx.fillStyle = '#0074C7';
     ctx.font = '600 28px "Montserrat", sans-serif';
     if (headline) {
-      const lines = wrapText(ctx, headline, 920);
-      let hy = 600;
-      for (const ln of lines.slice(0, 2)) {
+      const lines = wrapText(ctx, headline, 920).slice(0, 2);
+      let hy = blockY;
+      for (const ln of lines) {
         ctx.fillText(ln, 80, hy);
         hy += 38;
       }
     }
 
-    // Competências (até 4)
+    // ====== MÉTRICAS DE PROCESSO ======
+    // Mostra que houve trabalho: turnos de decisão + consultas profissionais
+    const metricsY = blockY + 90;
+    const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
+    const consultantsUsed = state.consultantsUsed || 0;
+
     ctx.fillStyle = '#0a1628';
-    ctx.font = '500 18px "JetBrains Mono", monospace';
-    ctx.fillText('COMPETÊNCIAS DEMONSTRADAS', 80, 730);
+    ctx.font = '500 16px "JetBrains Mono", monospace';
+    ctx.fillText('PROCESSO', 80, metricsY);
 
     ctx.font = '400 20px "Montserrat", sans-serif';
+    ctx.fillStyle = '#475569';
+    let mtX = 80;
+    const metric1 = `${turnsPlayed} turnos de decisão sob pressão`;
+    ctx.fillText('▸ ' + metric1, mtX, metricsY + 32);
+
+    if (consultantsUsed > 0) {
+      const metric2 = `${consultantsUsed} consulta${consultantsUsed > 1 ? 's' : ''} profissional${consultantsUsed > 1 ? 'is' : ''} simulada${consultantsUsed > 1 ? 's' : ''}`;
+      ctx.fillText('▸ ' + metric2, mtX, metricsY + 60);
+    }
+
+    const metric3 = `Caso real do mercado · sem múltipla escolha · sem gabarito`;
+    ctx.fillText('▸ ' + metric3, mtX, metricsY + (consultantsUsed > 0 ? 88 : 60));
+
+    // ====== COMPETÊNCIAS ======
+    const compY = metricsY + (consultantsUsed > 0 ? 140 : 112);
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '500 16px "JetBrains Mono", monospace';
+    ctx.fillText('COMPETÊNCIAS DEMONSTRADAS', 80, compY);
+
+    ctx.font = '400 19px "Montserrat", sans-serif';
     ctx.fillStyle = '#0a1628';
     const strengths = (diagnosis && diagnosis.strengths) || [];
-    const items = strengths.slice(0, 4).map(s => '• ' + (s.description || '').substring(0, 80));
-    let cy = 770;
+    const items = strengths.slice(0, 3).map(s => (s.description || '').substring(0, 100));
+    let cy = compY + 30;
     for (const it of items) {
-      const lines = wrapText(ctx, it, 920);
+      const lines = wrapText(ctx, '• ' + it, 920);
       for (const ln of lines.slice(0, 2)) {
         ctx.fillText(ln, 80, cy);
-        cy += 28;
+        cy += 26;
       }
       cy += 4;
     }
 
-    // Data
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '400 16px "JetBrains Mono", monospace';
-    const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
-    ctx.fillText(dateStr.toUpperCase(), 80, 1000);
+    // ====== BORDÃO INSTITUCIONAL (selo conceitual) ======
+    // Posição fixa próxima ao rodapé, em destaque
+    const bordaoY = 930;
 
-    // Faixa inferior
+    // Caixa de fundo sutil
+    ctx.fillStyle = '#E8F4FF';
+    ctx.fillRect(80, bordaoY - 28, 920, 56);
+
+    // Linha lateral de destaque
+    ctx.fillStyle = '#0074C7';
+    ctx.fillRect(80, bordaoY - 28, 4, 56);
+
+    ctx.fillStyle = '#0a1628';
+    ctx.font = 'italic 600 22px "Playfair Display", Georgia, serif';
+    ctx.fillText('"Conhecer para decidir. Decidir para fazer diferença."', 104, bordaoY + 6);
+
+    // ====== RODAPÉ REFORÇADO ======
+    // Linha "MÉTODO ACTIVE IA"
+    ctx.fillStyle = '#0074C7';
+    ctx.font = '600 14px "JetBrains Mono", monospace';
+    ctx.fillText('MÉTODO ACTIVE IA', 80, 1010);
+
+    // Descrição curta da metodologia
+    ctx.fillStyle = '#475569';
+    ctx.font = '400 14px "Montserrat", sans-serif';
+    ctx.fillText('Simulação profissional avaliada por IA em tempo real · Galícia Educação', 80, 1034);
+
+    // Data (canto direito)
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '400 13px "JetBrains Mono", monospace';
+    const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+    ctx.textAlign = 'right';
+    ctx.fillText(dateStr.toUpperCase(), 1000, 1034);
+    ctx.textAlign = 'left';
+
+    // Faixa inferior (gradiente Galícia)
     ctx.fillStyle = grad;
     ctx.fillRect(0, 1072, 1080, 8);
 
@@ -742,7 +816,245 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     return lines;
   }
 
+  // ==========================================================================
+  // SEÇÃO 12B — LINKEDIN CAPTION (NOVO em v1.2.0)
+  //
+  // Gera o texto sugerido para postagem no LinkedIn. Tem cinco partes:
+  //   1. Abertura específica (1-2 frases) — "Hoje conclui mais uma simulação..."
+  //   2. Recapitulação do caso (1 parágrafo) — gerada pela IA a partir do state
+  //   3. Bloco fixo da metodologia (3 frases) — sempre o mesmo
+  //   4. Bordão institucional — "Conhecer para decidir. Decidir para fazer diferença."
+  //   5. Hashtags — #ActiveIA #GalíciaEducação #[disciplina]
+  //
+  // Tom: profissional/conquista (versão A1, decisão A3 simplificada).
+  // Active IA como protagonista, Galícia como casa do método (B1).
+  // Metodologia descrita em 3 frases (C2).
+  // ==========================================================================
+
+  const LINKEDIN_BORDAO = 'Conhecer para decidir. Decidir para fazer diferença.';
+
+  const LINKEDIN_METHOD_BLOCK = `O Active IA é a metodologia da Galícia Educação que substitui prova por simulação profissional. A inteligência artificial avalia o raciocínio do aluno, não a resposta. Fundamentada em pesquisas de Stanford, UCLA e Harvard sobre como adultos efetivamente desenvolvem competência prática.`;
+
+  function _slugify(str) {
+    return String(str || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '')
+      .replace(/^[0-9]+/, '');
+  }
+
+  function _buildHashtags(config) {
+    const tags = ['#ActiveIA', '#GalíciaEducação'];
+    // Tag da disciplina/escola
+    if (config.school) {
+      const schoolTag = '#' + _slugify(config.school);
+      if (schoolTag.length > 1) tags.push(schoolTag);
+    }
+    // Tag específica do módulo (se o nome curto cabe)
+    if (config.name) {
+      // Pega primeira palavra significativa do nome do simulador
+      const firstSubstantive = config.name.split(/[\s:]+/)[0];
+      if (firstSubstantive && firstSubstantive.length > 3) {
+        const slug = _slugify(firstSubstantive);
+        if (slug && !tags.includes('#' + slug)) tags.push('#' + slug);
+      }
+    }
+    return tags.join(' ');
+  }
+
+  /**
+   * Gera o texto sugerido para LinkedIn. Faz UMA chamada à IA para produzir
+   * o parágrafo de recapitulação personalizada do caso (parte 2).
+   * Os blocos fixos (metodologia, bordão, hashtags) são montados localmente.
+   */
+  async function linkedinCaption(state, diagnosis, config) {
+    // === Parte 2: recapitulação personalizada (chamada à IA) ===
+    let recapBlock = '';
+    try {
+      const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
+      const consultantsUsed = state.consultantsUsed || 0;
+      const archetypeDescription = state.archetype?.seed_description || 'um caso clínico complexo';
+      const role = config.role_context || 'profissional do domínio';
+      const articulationProfile = (state.articulationHistory || []).join(' → ') || '—';
+
+      const userMsg = `Produza UM PARÁGRAFO de recapitulação para uma postagem de LinkedIn em primeira pessoa do aluno.
+
+CONTEXTO:
+- Nome do simulador: ${config.name}
+- Disciplina/módulo: ${config.module || 'pós-graduação Galícia'}
+- Papel que o aluno assumiu: ${role.substring(0, 300)}
+- Arquétipo do caso (cenário base): ${archetypeDescription}
+- Nível jogado: ${config.levels[state.level].label}
+- Turnos jogados: ${turnsPlayed}
+- Consultas a colegas: ${consultantsUsed}
+- Perfil de articulação turno a turno: ${articulationProfile}
+- Pontos fortes: ${(diagnosis?.strengths || []).map(s => s.description).slice(0, 3).join(' | ')}
+
+REQUISITOS DO PARÁGRAFO:
+- Primeira pessoa do aluno ("assumi o papel de...", "conduzi...", "articulei...").
+- 3 a 5 frases. Profissional, sóbrio, sem hipérbole.
+- Mencione concretamente o que o aluno FEZ (não o que aprendeu, não como se sentiu).
+- Pode citar a natureza do caso (sem revelar diagnóstico se for de saúde — fale do desafio enfrentado).
+- Termine com uma frase descrevendo COMO A IA AVALIOU (algo como: "A IA não corrigiu certo ou errado: avaliou as premissas que assumi, os riscos que mapeei, os riscos que ignorei").
+- NÃO use emoji. NÃO use markdown. NÃO use JSON. Apenas o texto do parágrafo.
+- NÃO comece com "Eu". Comece com verbo de ação ou contexto.
+
+Apenas o parágrafo. Nada antes, nada depois.`;
+
+      const result = await callAPI({
+        systemFixed: 'Você é um redator profissional ajudando um aluno a recapitular sua experiência em uma simulação Active IA da Galícia Educação para postagem no LinkedIn. Tom: profissional, sóbrio, primeira pessoa, sem hipérbole. Apenas texto livre. Nunca JSON, nunca markdown.',
+        systemDynamic: 'Modo: geração de parágrafo de recapitulação para postagem LinkedIn.',
+        messages: [{ role: 'user', content: userMsg }],
+        maxTokens: 500
+      });
+
+      recapBlock = ((result.rawText || '').trim())
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/^\{[\s\S]*\}$/g, '')
+        .trim();
+
+      if (!recapBlock) {
+        // Fallback genérico caso a IA falhe
+        recapBlock = `Assumi o papel descrito no simulador e enfrentei o caso ao longo de ${turnsPlayed} turnos de decisão. A cada turno, articulei minha conduta e fundamentação. A IA avaliou as premissas que assumi, os riscos que mapeei e os riscos que ignorei.`;
+      }
+    } catch (e) {
+      console.warn('[ActiveIA] linkedinCaption: falha na geração da recap, usando fallback', e);
+      const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
+      recapBlock = `Assumi o papel proposto no simulador e enfrentei o caso ao longo de ${turnsPlayed} turnos de decisão sob pressão. A cada turno, articulei conduta e fundamentação. A IA avaliou as premissas que assumi, os riscos que mapeei e os riscos que ignorei.`;
+    }
+
+    // === Parte 1: abertura padrão ===
+    const moduleRef = config.module ? ` na pós-graduação em ${config.module.replace(/—.*$/, '').trim()}` : '';
+    const intro = `Hoje conclui mais uma simulação Active IA${moduleRef} da Galícia Educação. ${recapBlock}`;
+
+    // === Parte 3, 4, 5: blocos fixos ===
+    const hashtags = _buildHashtags(config);
+
+    const fullCaption = `${intro}
+
+${LINKEDIN_METHOD_BLOCK}
+
+${LINKEDIN_BORDAO}
+
+${hashtags}`;
+
+    return fullCaption;
+  }
+
+  // ==========================================================================
+  // SEÇÃO 12C — SHARE LINKEDIN MODAL (NOVO em v1.2.0)
+  //
+  // Abre modal Galícia que orquestra a publicação no LinkedIn:
+  //   - Preview do card PNG renderizado
+  //   - Texto sugerido (pode editar)
+  //   - Botão "Copiar texto" (clipboard)
+  //   - Botão "Baixar imagem" (PNG)
+  //   - Botão "Abrir LinkedIn"
+  // ==========================================================================
+
+  async function shareLinkedInModal(state, diagnosis, config) {
+    // Mostra modal de loading enquanto gera o card e o texto em paralelo
+    showModal({
+      eyebrow: 'COMPARTILHAR NO LINKEDIN',
+      title: 'Preparando seu material...',
+      body: `
+        <div style="display:flex; align-items:center; gap:12px; padding:8px 0;">
+          <span class="activeia-modal-spinner"></span>
+          <span style="color:var(--gal-text-2, #475569);">Gerando imagem e texto personalizados a partir da sua sessão...</span>
+        </div>
+      `,
+      bodyIsHTML: true,
+      actions: [{ label: 'Aguarde...', disabled: true, close: false }],
+      allowEscClose: false
+    });
+
+    let cardBlob, caption;
+    try {
+      [cardBlob, caption] = await Promise.all([
+        generateLinkedInCard(state, diagnosis, config),
+        linkedinCaption(state, diagnosis, config)
+      ]);
+    } catch (e) {
+      console.error('[ActiveIA] shareLinkedInModal: erro ao gerar material', e);
+      updateModalBody(`
+        <p style="color:var(--gal-danger, #A32D2D); font-size:14px;">Não foi possível gerar o material agora. Tente novamente em alguns segundos.</p>
+        <p style="font-size:12px; color:var(--gal-text-2, #475569); margin-top:8px;">Detalhe: ${escapeHTML(e.message || 'erro desconhecido')}</p>
+      `, true);
+      updateModalFooter([{ label: 'Fechar', primary: true, close: true }]);
+      return;
+    }
+
+    const cardUrl = URL.createObjectURL(cardBlob);
+
+    // Renderiza modal com preview + texto + botões
+    updateModalBody(`
+      <div style="display:grid; grid-template-columns: 180px 1fr; gap: 16px; align-items:start;">
+        <div>
+          <img src="${cardUrl}" alt="Card Active IA" style="width:100%; border-radius:10px; border:1px solid var(--gal-border, #E2E8F0); display:block;" />
+          <div style="font-size:11px; color:var(--gal-text-2, #475569); margin-top:6px; text-align:center; font-family:'JetBrains Mono', monospace;">IMAGEM 1080×1080</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono', monospace; font-size:10px; letter-spacing:0.1em; color:var(--gal-azul-escuro, #0074C7); font-weight:600; margin-bottom:6px;">TEXTO SUGERIDO</div>
+          <textarea id="activeia-share-caption" class="activeia-modal-input" style="min-height:280px; font-size:13.5px; line-height:1.6;">${escapeHTML(caption)}</textarea>
+          <p style="font-size:11.5px; color:var(--gal-text-2, #475569); margin-top:6px;">Você pode editar o texto antes de postar. As hashtags ajudam o alcance da publicação.</p>
+        </div>
+      </div>
+    `, true);
+
+    updateModalFooter([
+      {
+        label: 'Fechar',
+        close: true,
+        onClick: () => { URL.revokeObjectURL(cardUrl); }
+      },
+      {
+        label: 'Copiar texto',
+        close: false,
+        onClick: () => {
+          const ta = document.getElementById('activeia-share-caption');
+          const text = ta?.value || caption;
+          navigator.clipboard.writeText(text).then(() => {
+            // Feedback visual rápido
+            const btn = document.querySelector('.activeia-modal-footer button:nth-of-type(2)');
+            if (btn) {
+              const prevText = btn.textContent;
+              btn.textContent = '✓ Copiado';
+              setTimeout(() => { if (btn) btn.textContent = prevText; }, 1500);
+            }
+          }).catch(err => {
+            console.warn('[ActiveIA] clipboard write failed:', err);
+          });
+          return false;
+        }
+      },
+      {
+        label: 'Baixar imagem',
+        close: false,
+        onClick: () => {
+          const a = document.createElement('a');
+          a.href = cardUrl;
+          a.download = `active-ia-${config.id}-${state.userName?.replace(/\s+/g, '-').toLowerCase() || 'aluno'}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          return false;
+        }
+      },
+      {
+        label: 'Abrir LinkedIn →',
+        primary: true,
+        close: false,
+        onClick: () => {
+          window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank');
+          return false;
+        }
+      }
+    ]);
+  }
+
+  // Mantém shareToLinkedIn como wrapper de compatibilidade
+  // (caso algum simulador antigo ainda chame essa função)
   async function shareToLinkedIn(blob, suggestedText) {
+    console.warn('[ActiveIA] shareToLinkedIn é DEPRECATED desde v1.2.0. Use ActiveIA.export.shareLinkedInModal(state, diagnosis, config).');
     if (!blob) return;
     const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -752,7 +1064,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     a.click();
     document.body.removeChild(a);
     setTimeout(() => {
-      const u = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(suggestedText)}`;
+      const u = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(suggestedText || '')}`;
       window.open(u, '_blank');
       URL.revokeObjectURL(downloadUrl);
     }, 800);
@@ -861,6 +1173,478 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
   }
 
   // ==========================================================================
+  // SEÇÃO 18 — MODAL GENÉRICO GALÍCIA (NOVO em v1.1.0)
+  //
+  // Sistema de modal reusável no chassi Galícia. Substitui alert(), prompt()
+  // e confirm() nativos do navegador, que quebram a imersão diegética e o
+  // look-and-feel do simulador.
+  //
+  // Uso:
+  //   ActiveIA.modal.show({
+  //     eyebrow: 'TÍTULO PEQUENO',
+  //     title: 'Pergunta ou aviso principal',
+  //     body: 'HTML ou string a renderizar no corpo',
+  //     bodyIsHTML: false,
+  //     actions: [
+  //       { label: 'Cancelar', close: true },
+  //       { label: 'Confirmar', primary: true, onClick: () => {...}, close: true }
+  //     ]
+  //   });
+  //
+  //   ActiveIA.modal.close();
+  // ==========================================================================
+
+  const MODAL_CSS = `
+.activeia-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 22, 40, 0.55);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: 'Gotham', 'Montserrat', system-ui, -apple-system, sans-serif;
+}
+.activeia-modal-overlay.active { display: flex; }
+.activeia-modal {
+  background: var(--gal-card, #FFFFFF);
+  border-radius: 14px;
+  max-width: 580px;
+  width: 100%;
+  max-height: 88vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px rgba(10, 22, 40, 0.18);
+  border: 1px solid var(--gal-border, #E2E8F0);
+  animation: activeia-modal-in 0.18s ease-out;
+}
+@keyframes activeia-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.activeia-modal-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--gal-border, #E2E8F0);
+  background: linear-gradient(180deg, var(--gal-card-tint, #E8F4FF), var(--gal-card, #FFFFFF));
+}
+.activeia-modal-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--gal-azul-escuro, #0074C7);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.activeia-modal-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gal-text, #0a1628);
+  margin: 4px 0 2px;
+}
+.activeia-modal-subtitle {
+  font-size: 12px;
+  color: var(--gal-text-2, #475569);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.activeia-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--gal-text, #0a1628);
+}
+.activeia-modal-body p { margin: 0 0 12px; }
+.activeia-modal-body p:last-child { margin-bottom: 0; }
+.activeia-modal-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--gal-border, #E2E8F0);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: var(--gal-bg, #FAF7F2);
+}
+.activeia-modal-footer button {
+  font-family: 'Gotham', 'Montserrat', system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--gal-border, #E2E8F0);
+  background: var(--gal-card, #FFFFFF);
+  color: var(--gal-text, #0a1628);
+  padding: 10px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.activeia-modal-footer button:hover {
+  background: var(--gal-card-tint, #E8F4FF);
+  border-color: var(--gal-azul-escuro, #0074C7);
+}
+.activeia-modal-footer button.primary {
+  background: var(--gal-azul-escuro, #0074C7);
+  color: #FFFFFF;
+  border-color: var(--gal-azul-escuro, #0074C7);
+}
+.activeia-modal-footer button.primary:hover {
+  background: var(--gal-dark-navy, #0a1628);
+  border-color: var(--gal-dark-navy, #0a1628);
+}
+.activeia-modal-footer button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.activeia-modal-question-box {
+  background: var(--gal-card-tint, #E8F4FF);
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--gal-text-2, #475569);
+  margin-bottom: 16px;
+  border-left: 3px solid var(--gal-azul-medio, #00BDFF);
+}
+.activeia-modal-question-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--gal-azul-escuro, #0074C7);
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.activeia-modal-input {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  font-family: 'Gotham', 'Montserrat', system-ui, sans-serif;
+  font-size: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--gal-border, #E2E8F0);
+  border-radius: 10px;
+  background: var(--gal-bg, #FAF7F2);
+  color: var(--gal-text, #0a1628);
+}
+.activeia-modal-input:focus {
+  outline: none;
+  border-color: var(--gal-azul-escuro, #0074C7);
+}
+.activeia-modal-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--gal-border, #E2E8F0);
+  border-top-color: var(--gal-azul-escuro, #0074C7);
+  border-radius: 50%;
+  animation: activeia-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+@keyframes activeia-spin {
+  to { transform: rotate(360deg); }
+}
+[data-theme="dark"] .activeia-modal {
+  background: var(--gal-card, #161b22);
+}
+`;
+
+  function _ensureModalCSS() {
+    if (document.getElementById('activeia-modal-css')) return;
+    const style = document.createElement('style');
+    style.id = 'activeia-modal-css';
+    style.textContent = MODAL_CSS;
+    document.head.appendChild(style);
+  }
+
+  function _ensureModalDOM() {
+    if (document.getElementById('activeia-modal-overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'activeia-modal-overlay';
+    overlay.className = 'activeia-modal-overlay';
+    overlay.innerHTML = `
+      <div class="activeia-modal" role="dialog" aria-modal="true">
+        <div class="activeia-modal-header">
+          <div class="activeia-modal-eyebrow" id="activeia-modal-eyebrow"></div>
+          <div class="activeia-modal-title" id="activeia-modal-title"></div>
+          <div class="activeia-modal-subtitle" id="activeia-modal-subtitle"></div>
+        </div>
+        <div class="activeia-modal-body" id="activeia-modal-body"></div>
+        <div class="activeia-modal-footer" id="activeia-modal-footer"></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Fechar com ESC
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.classList.contains('active')) {
+        const allowClose = overlay.dataset.allowEscClose !== 'false';
+        if (allowClose) closeModal();
+      }
+    });
+  }
+
+  function escapeHTML(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function showModal(opts) {
+    opts = opts || {};
+    _ensureModalCSS();
+    _ensureModalDOM();
+
+    const overlay = document.getElementById('activeia-modal-overlay');
+    const eyebrowEl = document.getElementById('activeia-modal-eyebrow');
+    const titleEl = document.getElementById('activeia-modal-title');
+    const subtitleEl = document.getElementById('activeia-modal-subtitle');
+    const bodyEl = document.getElementById('activeia-modal-body');
+    const footerEl = document.getElementById('activeia-modal-footer');
+
+    eyebrowEl.textContent = opts.eyebrow || '';
+    eyebrowEl.style.display = opts.eyebrow ? '' : 'none';
+    titleEl.textContent = opts.title || '';
+    titleEl.style.display = opts.title ? '' : 'none';
+    subtitleEl.textContent = opts.subtitle || '';
+    subtitleEl.style.display = opts.subtitle ? '' : 'none';
+
+    if (opts.bodyIsHTML) {
+      bodyEl.innerHTML = opts.body || '';
+    } else {
+      bodyEl.textContent = opts.body || '';
+    }
+
+    footerEl.innerHTML = '';
+    const actions = opts.actions || [{ label: 'Fechar', close: true }];
+    actions.forEach(action => {
+      const btn = document.createElement('button');
+      btn.textContent = action.label;
+      if (action.primary) btn.classList.add('primary');
+      if (action.disabled) btn.disabled = true;
+      if (action.id) btn.id = action.id;
+      btn.addEventListener('click', () => {
+        if (typeof action.onClick === 'function') {
+          const result = action.onClick();
+          if (result === false) return; // permite cancelar fechamento
+        }
+        if (action.close !== false) closeModal();
+      });
+      footerEl.appendChild(btn);
+    });
+
+    overlay.dataset.allowEscClose = opts.allowEscClose !== false ? 'true' : 'false';
+    overlay.classList.add('active');
+
+    if (typeof opts.afterOpen === 'function') {
+      setTimeout(() => opts.afterOpen(bodyEl, footerEl), 50);
+    }
+
+    return { close: closeModal, bodyEl, footerEl };
+  }
+
+  function closeModal() {
+    const overlay = document.getElementById('activeia-modal-overlay');
+    if (overlay) overlay.classList.remove('active');
+  }
+
+  function updateModalBody(html, isHTML) {
+    const bodyEl = document.getElementById('activeia-modal-body');
+    if (!bodyEl) return;
+    if (isHTML) bodyEl.innerHTML = html;
+    else bodyEl.textContent = html;
+  }
+
+  function updateModalFooter(actions) {
+    const footerEl = document.getElementById('activeia-modal-footer');
+    if (!footerEl) return;
+    footerEl.innerHTML = '';
+    (actions || []).forEach(action => {
+      const btn = document.createElement('button');
+      btn.textContent = action.label;
+      if (action.primary) btn.classList.add('primary');
+      if (action.disabled) btn.disabled = true;
+      if (action.id) btn.id = action.id;
+      btn.addEventListener('click', () => {
+        if (typeof action.onClick === 'function') {
+          const result = action.onClick();
+          if (result === false) return;
+        }
+        if (action.close !== false) closeModal();
+      });
+      footerEl.appendChild(btn);
+    });
+  }
+
+  // ==========================================================================
+  // SEÇÃO 19 — CONSULTOR COLEGIAL (NOVO em v1.1.0)
+  //
+  // Módulo completo de consulta colegial. Substitui qualquer implementação
+  // ad-hoc de consultor com prompt() + alert() nativos do navegador, que
+  // produziam UX degradada e prompts confusos (mistura de texto livre + JSON).
+  //
+  // Uso pelo simulador:
+  //   await ActiveIA.consultant.open({
+  //     consultant: { name, role, id },           // do SIMULATOR_CONFIG.consultants
+  //     gameContext: {                            // contexto da sessão
+  //       archetype, caseState, phase, level
+  //     },
+  //     onUsed: () => { ... },                    // callback após consulta bem-sucedida
+  //     onError: () => { ... }                    // callback em caso de erro
+  //   });
+  //
+  // O consultor responde em TEXTO LIVRE (não JSON). 2-5 frases.
+  // A Regra de Proporcionalidade NÃO é injetada no prompt do consultor
+  // (faz sentido pros turnos do jogo, é veneno pra conversa colegial).
+  // ==========================================================================
+
+  function buildConsultantSystemFixed(consultant) {
+    return `Você é ${consultant.name}, ${consultant.role}, em consulta colegial breve com o profissional em formação dentro de um simulador Active IA da Galícia Educação.
+
+REGRAS DE RESPOSTA (cumpra rigorosamente):
+- Responda em TEXTO LIVRE em português brasileiro.
+- NÃO use JSON em hipótese alguma. NÃO use markdown. NÃO use blocos de código (\`\`\`).
+- Comprimento: 2 a 5 frases. Direto ao ponto.
+- Tom: profissional, colegial, sem floreios nem retórica acadêmica. Você é um colega experiente sendo consultado de forma rápida.
+- Pode tutear ou usar "doutor(a)" / "colega" conforme natural. Sem rigidez.
+- Você é COLEGA, NÃO GABARITO: ofereça perspectiva especializada, eventualmente faça UMA pergunta de volta para ajudar o colega a pensar. NÃO entregue diagnóstico fechado nem plano completo.
+- Se a pergunta for vaga ou genérica, peça precisão em UMA frase — sem ser professoral.
+- NÃO mencione o "simulador" ou que isso é um exercício. Você é o(a) ${consultant.role.toLowerCase()} sendo consultado(a). Mantenha-se no personagem.
+
+Apenas o texto da sua resposta. Nada antes, nada depois.`;
+  }
+
+  function buildConsultantSystemDynamic(gameContext) {
+    const archetype = gameContext.archetype || {};
+    const caseState = gameContext.caseState || {};
+    return `Contexto interno do caso (NÃO citar literalmente; use apenas para calibrar sua resposta):
+- Cenário: ${archetype.seed_description || 'em apresentação'}
+- Hipótese dominante construída pelo colega: ${caseState.dominant_hypothesis || 'em formação'}
+- Sinais já identificados: ${(caseState.key_signals_identified || []).join('; ') || 'poucos ainda'}
+- Fase atual do raciocínio: ${gameContext.phase || 'inicial'}
+- Nível do profissional: ${gameContext.level || 'em formação'}`;
+  }
+
+  async function openConsultant({ consultant, gameContext, onUsed, onError }) {
+    if (!consultant || !consultant.name || !consultant.role) {
+      console.warn('[ActiveIA] consultant.open: consultor inválido');
+      return;
+    }
+
+    let currentQuestion = '';
+
+    // === ETAPA 1: solicitar pergunta ===
+    showModal({
+      eyebrow: 'CONSULTORIA COLEGIAL',
+      title: consultant.name,
+      subtitle: consultant.role,
+      body: `
+        <p style="font-size:13px; color:var(--gal-text-2, #475569); margin:0 0 12px;">Formule uma pergunta objetiva. Lembre que ${consultant.name.split(' ')[0]} é colega, não gabarito — pode oferecer perspectiva ou questionar de volta.</p>
+        <textarea id="activeia-consult-input" class="activeia-modal-input" placeholder="Sua pergunta para ${consultant.name.split(' ')[1] || consultant.name}..."></textarea>
+      `,
+      bodyIsHTML: true,
+      actions: [
+        { label: 'Cancelar', close: true, onClick: () => {} },
+        {
+          label: 'Enviar pergunta →',
+          primary: true,
+          close: false,
+          onClick: () => {
+            const input = document.getElementById('activeia-consult-input');
+            const q = (input?.value || '').trim();
+            if (q.length < 3) {
+              input?.focus();
+              return false; // não fecha modal
+            }
+            currentQuestion = q;
+            sendConsultantQuestion({ consultant, question: q, gameContext, onUsed, onError });
+            return false; // não fecha; sendConsultantQuestion atualiza o modal
+          }
+        }
+      ],
+      afterOpen: () => {
+        const input = document.getElementById('activeia-consult-input');
+        if (input) input.focus();
+      }
+    });
+  }
+
+  async function sendConsultantQuestion({ consultant, question, gameContext, onUsed, onError }) {
+    // Estado: aguardando resposta
+    updateModalBody(`
+      <div class="activeia-modal-question-box">
+        <span class="activeia-modal-question-label">SUA PERGUNTA</span>
+        ${escapeHTML(question)}
+      </div>
+      <div style="display:flex; align-items:center; color:var(--gal-text-2, #475569); font-size:13px; padding:8px 0;">
+        <span class="activeia-modal-spinner"></span>
+        Aguardando resposta de ${escapeHTML(consultant.name.split(' ')[1] || consultant.name)}...
+      </div>
+    `, true);
+    updateModalFooter([
+      { label: 'Aguarde...', disabled: true, close: false }
+    ]);
+
+    // Marca como usado já (mesmo que falhe — defensivo, depois desconta se erro)
+    if (typeof onUsed === 'function') onUsed();
+
+    try {
+      const systemFixed = buildConsultantSystemFixed(consultant);
+      const systemDynamic = buildConsultantSystemDynamic(gameContext);
+
+      const result = await callAPI({
+        systemFixed,
+        systemDynamic,
+        messages: [{ role: 'user', content: question }],
+        maxTokens: 400
+      });
+
+      // Consultor responde em texto livre — usa rawText, não tenta parsear JSON
+      let answer = (result.rawText || '').trim();
+
+      // Limpeza defensiva: se a IA tentar vazar JSON ou markdown, remove
+      answer = answer.replace(/```[\s\S]*?```/g, '').trim();
+      // Remove JSON puro residual (sem markdown)
+      if (/^\{[\s\S]*\}$/.test(answer)) {
+        try {
+          const obj = JSON.parse(answer);
+          answer = obj.answer || obj.resposta || obj.response || obj.text || answer;
+        } catch (e) {}
+      }
+      if (!answer) answer = 'Não consegui formular uma resposta agora. Tente reformular a pergunta.';
+
+      // Renderiza resposta
+      updateModalBody(`
+        <div class="activeia-modal-question-box">
+          <span class="activeia-modal-question-label">SUA PERGUNTA</span>
+          ${escapeHTML(question)}
+        </div>
+        <div style="font-size:14.5px; line-height:1.65; color:var(--gal-text, #0a1628); white-space:pre-wrap;">${escapeHTML(answer)}</div>
+      `, true);
+      updateModalFooter([
+        { label: 'Voltar à cena', primary: true, close: true }
+      ]);
+
+    } catch (e) {
+      console.error('[ActiveIA] consultant error:', e);
+      if (typeof onError === 'function') onError(e);
+
+      updateModalBody(`
+        <p style="color:var(--gal-danger, #A32D2D); font-size:14px;">Não foi possível consultar agora. Sua cota não foi descontada.</p>
+        <p style="font-size:12px; color:var(--gal-text-2, #475569); margin-top:8px;">Detalhe técnico: ${escapeHTML(e.message || 'erro desconhecido')}</p>
+      `, true);
+      updateModalFooter([
+        { label: 'Fechar', primary: true, close: true }
+      ]);
+    }
+  }
+
+  // ==========================================================================
   // SEÇÃO 17 — INIT
   // ==========================================================================
 
@@ -870,6 +1654,9 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     }
 
     console.log(`[ActiveIA] Core v${CORE_VERSION} inicializando simulador "${config.id}"`);
+
+    // Garante CSS do modal injetado já no boot (antes de qualquer uso)
+    _ensureModalCSS();
 
     await preloadCache([
       `${config.id}_session`,
@@ -881,9 +1668,9 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     initTheme(config.id);
 
     // O simulador específico recebe o config + utilitários do core para construir
-    // sua própria UI. O core NÃO renderiza telas — apenas oferece a infraestrutura.
-    // Cabe ao index.html chamar core.session.load, core.daily.isBlocked etc.
-    // e renderizar a UI específica do simulador.
+    // sua própria UI. O core NÃO renderiza telas — apenas oferece a infraestrutura
+    // (utilitários, motores, modais, exports). Cabe ao index.html chamar
+    // core.session.load, core.daily.isBlocked, core.consultant.open, etc.
 
     if (typeof global.onCoreReady === 'function') {
       global.onCoreReady(config);
@@ -913,12 +1700,26 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       html: exportSessionHTML,
       pdf: exportSessionPDF,
       linkedinCard: generateLinkedInCard,
+      linkedinCaption: linkedinCaption,
+      shareLinkedInModal: shareLinkedInModal,
       shareLinkedIn: shareToLinkedIn,
       buildDashboardHTML: buildDashboardHTML
     },
     ui: { showLoading, hideLoading, showError, hideError },
     daily: { isBlocked: isDailyBlocked, markComplete: markDayComplete, getTimer: getDailyTimer },
-    session: { save: saveSession, load: loadSession, clear: clearSession }
+    session: { save: saveSession, load: loadSession, clear: clearSession },
+    modal: {
+      show: showModal,
+      close: closeModal,
+      updateBody: updateModalBody,
+      updateFooter: updateModalFooter
+    },
+    consultant: {
+      open: openConsultant
+    },
+    utils: {
+      escapeHTML: escapeHTML
+    }
   };
 
   console.log(`[ActiveIA] Core v${CORE_VERSION} carregado`);
