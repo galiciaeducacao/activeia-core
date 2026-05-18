@@ -1,24 +1,23 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.0
+ * ACTIVE IA — CORE v1.2.1
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
  *
+ * MUDANÇAS DA v1.2.0 PARA v1.2.1 (PATCH):
+ *   - CORREÇÃO: checkEarlyTermination agora blinda Júnior — retorna terminate:false
+ *     incondicionalmente quando level === 'junior'. Antes, o hard fail global
+ *     (média < 25%) podia disparar em Júnior a partir do turno 3, violando a
+ *     regra do HANDOFF "Júnior nunca encerra antecipadamente".
+ *
  * MUDANÇAS DA v1.1.0 PARA v1.2.0:
- *   - NOVO: ActiveIA.export.linkedinCaption — gera texto pronto e personalizado
- *           para postagem no LinkedIn, baseado na sessão do aluno. Explicita a
- *           metodologia Active IA para a audiência do LinkedIn (publicidade
- *           dupla: aluno + Galícia).
- *   - NOVO: ActiveIA.export.shareLinkedInModal — abre modal Galícia com preview
- *           do card PNG + texto pronto + botões copiar/baixar/abrir LinkedIn.
- *   - AJUSTADO: ActiveIA.export.linkedinCard agora inclui rodapé reforçado
- *               com "MÉTODO ACTIVE IA · Galícia Educação" e métricas de processo
- *               (turnos de decisão, consultas profissionais) além das competências.
+ *   - NOVO: ActiveIA.export.linkedinCaption — gera texto pronto para LinkedIn
+ *   - NOVO: ActiveIA.export.shareLinkedInModal — modal Galícia com preview + texto
+ *   - AJUSTADO: linkedinCard com selo conceitual e métricas de processo
  *   - BORDÃO INSTITUCIONAL: "Conhecer para decidir. Decidir para fazer diferença."
- *           — usado no card visual e no texto sugerido. Memorável, repetível.
  *
  * MUDANÇAS DA v1.0.0 PARA v1.1.0:
  *   - NOVO: ActiveIA.modal — sistema de modal Galícia reusável
@@ -39,7 +38,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.0';
+  const CORE_VERSION = '1.2.1';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -347,6 +346,19 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
     const tolerance = ARTICULATION_TOLERANCE[level];
     const turnsConfig = config.levels[level];
 
+    // ========================================================================
+    // BLINDAGEM JÚNIOR (regra dura do HANDOFF — não reabrir)
+    // ========================================================================
+    // Júnior NUNCA encerra antecipadamente. A simulação só termina quando
+    // chega ao último turno definido em LEVEL_CONFIG. Esta regra existe
+    // porque o Júnior é o nível de entrada, e encerrar antecipadamente
+    // frustra alunos iniciantes que ainda estão calibrando articulação.
+    // Hard fail global, encerramento por articulação genérica, qualquer
+    // game_over vindo da IA — TUDO É IGNORADO no Júnior.
+    if (level === 'junior') {
+      return { terminate: false };
+    }
+
     // Regra 1 — encerramento por articulação (Pleno/Sênior)
     if (tolerance.earlyEnd && articulationHistory.length >= 2) {
       const last2 = articulationHistory.slice(-2);
@@ -372,10 +384,9 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
       }
     }
 
-    // Regra 2 — hard fail global (a partir do turno 3)
+    // Regra 2 — hard fail global (a partir do turno 3, APENAS Pleno/Sênior)
     if (currentTurn >= 3) {
       const totalIndicators = Object.values(indicators).reduce((a, b) => a + b, 0);
-      // Máximo teórico = soma dos máximos de cada indicador (max do config) × proporção de turnos já jogados
       const proportion = currentTurn / turnsConfig.turns;
       const maxIfPerfect = config.indicators.reduce((acc, ind) => acc + ind.max, 0) * proportion;
       if (totalIndicators < maxIfPerfect * 0.25) {
