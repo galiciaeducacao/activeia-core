@@ -1,17 +1,34 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.1
+ * ACTIVE IA — CORE v1.2.3
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
  *
+ * MUDANÇAS DA v1.2.2 PARA v1.2.3 (PATCH editorial):
+ *   - VOCABULÁRIO: substituído "aluno/alunos/aluna" por "estudante" em TODOS
+ *     os textos expostos ao usuário (prompts da IA, fallback de copy LinkedIn,
+ *     bloco fixo da metodologia, prompts dos motores de avaliação e diagnóstico).
+ *     "Aluno" infantiliza num método que forma profissionais. "Estudante" é
+ *     neutro de gênero e mantém o ato de estudar.
+ *   - ESTRUTURA LinkedIn: nova abertura editorial firmada
+ *     "Active IA do módulo em [disciplina] da Galícia Educação"
+ *     (formato pedido pelo gestor do projeto). Tema do módulo não entra na
+ *     abertura — já aparece no card visual e no parágrafo gerado pela IA.
+ *   - PROMPT LinkedIn: instrução explícita à IA para nunca usar "aluno",
+ *     usar "estudante" ou o papel profissional jogado na cena.
+ *
+ * MUDANÇAS DA v1.2.1 PARA v1.2.2 (PATCH editorial):
+ *   - CORREÇÃO: linkedinCaption agora fala em "módulo X do curso Y da Galícia",
+ *     não mais "pós-graduação em Y". Active IA é experimentado módulo a módulo.
+ *   - CORREÇÃO: generateLinkedInCard renderiza disciplina sem identificador
+ *     interno "— Módulo NN" no badge ao lado do nível.
+ *
  * MUDANÇAS DA v1.2.0 PARA v1.2.1 (PATCH):
- *   - CORREÇÃO: checkEarlyTermination agora blinda Júnior — retorna terminate:false
- *     incondicionalmente quando level === 'junior'. Antes, o hard fail global
- *     (média < 25%) podia disparar em Júnior a partir do turno 3, violando a
- *     regra do HANDOFF "Júnior nunca encerra antecipadamente".
+ *   - CORREÇÃO: checkEarlyTermination blinda Júnior — retorna terminate:false
+ *     incondicionalmente quando level === 'junior'.
  *
  * MUDANÇAS DA v1.1.0 PARA v1.2.0:
  *   - NOVO: ActiveIA.export.linkedinCaption — gera texto pronto para LinkedIn
@@ -38,7 +55,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.1';
+  const CORE_VERSION = '1.2.3';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -259,7 +276,7 @@
     if (!caseState) return '';
 
     const intensityByLevel = {
-      junior: 'RAMIFICAÇÃO LEVE. Mantenha coerência. Desfecho geral é o mesmo, com pequenas variações conforme caminho do aluno.',
+      junior: 'RAMIFICAÇÃO LEVE. Mantenha coerência. Desfecho geral é o mesmo, com pequenas variações conforme caminho do estudante.',
       pleno:  'RAMIFICAÇÃO MODERADA. Desfechos efetivamente distintos conforme raciocínio. Caminho mais raso leva a desfecho funcionalmente pior.',
       senior: 'RAMIFICAÇÃO DENSA. Rota errada pode ser irrecuperável, com aprendizado embutido no encerramento. Coerência rígida com estado.'
     };
@@ -270,9 +287,9 @@
 
     return `
 ESTADO DO CASO ATUAL (mantenha coerência rígida com os campos abaixo):
-- Hipótese dominante construída pelo aluno: ${caseState.dominant_hypothesis || 'ainda em formação'}
+- Hipótese dominante construída pelo estudante: ${caseState.dominant_hypothesis || 'ainda em formação'}
 - Decisões-chave já tomadas: ${decisions}
-- Sinais identificados pelo aluno: ${identified}
+- Sinais identificados pelo estudante: ${identified}
 - Sinais relevantes ainda NÃO investigados: ${missed}
 - Posição no banco de ramificações: ${caseState.branch_position || 'inicial'}
 
@@ -294,9 +311,9 @@ REGRA DE PROPORCIONALIDADE — REGRA MAIS IMPORTANTE DESTE SIMULADOR
 (precedência absoluta sobre qualquer outra orientação)
 ═══════════════════════════════════════════════════════════════
 
-PARTE 1 — PROTOCOLO DE TRADUÇÃO LITERAL DA RESPOSTA DO ALUNO
+PARTE 1 — PROTOCOLO DE TRADUÇÃO LITERAL DA RESPOSTA DO ESTUDANTE
 
-Antes de produzir qualquer narrativa, classifique INTERNAMENTE a resposta do aluno em uma destas três categorias:
+Antes de produzir qualquer narrativa, classifique INTERNAMENTE a resposta do estudante em uma destas três categorias:
 
 (a) GENÉRICA — apenas nomeia categoria, instrumento ou intenção, sem especificar eixos, hipóteses, justificativa teórica ou método. Exemplos: "vou fazer anamnese", "peço exames", "vou negociar com o cliente", "fundamento na teoria", "encaminho para especialista".
 
@@ -312,25 +329,25 @@ ESSA CLASSIFICAÇÃO TEM CONSEQUÊNCIAS RÍGIDAS:
 | Parcial          | Revela APENAS os eixos explicitados.       | 40-60% do máximo do turno     |
 | Bem articulada   | Revela tudo que foi explicitamente pedido. | 70-100% do máximo do turno    |
 
-EXEMPLO CRÍTICO: se o aluno escreveu apenas "vou pedir exames", a IA NÃO entrega nenhum resultado de exame. A IA pergunta de volta, na voz do colega/residente/interlocutor da cena: "Quais exames, em que ordem, com que objetivo?". Indicadores recebem entre 10 e 20% do máximo do turno. O feedback abre nomeando literalmente "vou pedir exames" e caracterizando como genérico.
+EXEMPLO CRÍTICO: se o estudante escreveu apenas "vou pedir exames", a IA NÃO entrega nenhum resultado de exame. A IA pergunta de volta, na voz do colega/residente/interlocutor da cena: "Quais exames, em que ordem, com que objetivo?". Indicadores recebem entre 10 e 20% do máximo do turno. O feedback abre nomeando literalmente "vou pedir exames" e caracterizando como genérico.
 
 PARTE 2 — FORMATO OBRIGATÓRIO DO FEEDBACK PEDAGÓGICO
 
 O parágrafo "📝 Feedback:" ao final da narrativa SEMPRE:
-1. Começa nomeando literalmente o que o aluno escreveu (entre aspas, ou parafrase fiel).
+1. Começa nomeando literalmente o que o estudante escreveu (entre aspas, ou parafrase fiel).
 2. Caracteriza a especificidade da resposta como genérica, parcial ou bem articulada.
-3. Lista o que foi de fato coberto pelo aluno (mesmo que pouco).
+3. Lista o que foi de fato coberto pelo estudante (mesmo que pouco).
 4. Lista o que ficou de fora e deveria ter aparecido.
 5. Orienta o próximo turno.
 
 EXEMPLOS DE FRASES PROIBIDAS:
-- "Você conduziu a avaliação de forma estruturada e completa..." (quando o aluno só escreveu "vou avaliar")
+- "Você conduziu a avaliação de forma estruturada e completa..." (quando o estudante só escreveu "vou avaliar")
 - "Excelente articulação clínica..." (sem ter de fato havido articulação)
-- Qualquer elogio que não corresponda ao que está LITERALMENTE no texto do aluno.
+- Qualquer elogio que não corresponda ao que está LITERALMENTE no texto do estudante.
 
 PARTE 3 — PEDAGOGIA DA ESPECIFICIDADE
 
-A IA NUNCA completa pelo aluno. Se o aluno omitiu eixo importante, esse eixo permanece omitido até o aluno EXPLICITAMENTE mobilizá-lo. A IA não infere boa intenção e não preenche lacunas. O aluno articula ou não articula. O simulador é diagnóstico, não compensatório.
+A IA NUNCA completa pelo estudante. Se o estudante omitiu eixo importante, esse eixo permanece omitido até o estudante EXPLICITAMENTE mobilizá-lo. A IA não infere boa intenção e não preenche lacunas. O estudante articula ou não articula. O simulador é diagnóstico, não compensatório.
 
 CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
 "articulation_class": "generica" | "parcial" | "articulada"
@@ -411,7 +428,7 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
 
     const historySummary = state.turnLog.map((t, i) => {
       return `TURNO ${i + 1} (fase ${t.phase || '?'}, articulação ${t.articulation_class || '?'})
-Resposta do aluno: "${(t.userResponse || '').substring(0, 500)}"
+Resposta do estudante: "${(t.userResponse || '').substring(0, 500)}"
 Sinais identificados: ${(t.case_state?.key_signals_identified || []).join(', ') || '—'}
 Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
     }).join('\n\n');
@@ -419,7 +436,7 @@ Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
     const finalIndicators = state.indicators;
     const articulationProfile = state.articulationHistory.join(' → ');
 
-    const userMsg = `Analise a sessão completa do aluno abaixo e produza diagnóstico final estruturado.
+    const userMsg = `Analise a sessão completa do estudante abaixo e produza diagnóstico final estruturado.
 
 ARQUÉTIPO JOGADO: ${state.archetypeId}
 NÍVEL: ${state.level}
@@ -447,14 +464,14 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     "<concept_id>": "Frase explicando por que essa classificação, com referência ao turno (ex.: 'No turno 3 articulou ASPECTS corretamente'). Para 'nao_demonstrado', explique que o caso não dava oportunidade clara."
   },
   "strengths": [
-    { "turn": N, "description": "Frase específica e concreta sobre o que o aluno fez bem, citando literalmente o que ele articulou." }
+    { "turn": N, "description": "Frase específica e concreta sobre o que o estudante fez bem, citando literalmente o que articulou." }
   ],
   "weaknesses": [
     { "turn": N, "description": "Frase específica sobre o que faltou nesse turno. Termine com 'Reveja: <referência específica ao módulo>.'" }
   ],
   "next_step_recommendation": {
     "action": "subir_nivel" | "repetir_nivel" | "voltar_nivel" | "revisar_modulo",
-    "rationale": "Mensagem clara e direta ao aluno explicando a recomendação, em 2-3 frases."
+    "rationale": "Mensagem clara e direta ao estudante explicando a recomendação, em 2-3 frases."
   },
   "headline_metric": "Frase curta para o card LinkedIn, ex.: '12 de 15 conceitos do módulo dominados'"
 }`;
@@ -703,11 +720,12 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     ctx.fillText(`NÍVEL ${levelLabel}`, 190, badgeY + 32);
     ctx.textAlign = 'left';
 
-    // Módulo (ao lado do badge)
+    // Disciplina/curso (ao lado do badge, sem identificador interno tipo "— Módulo 01")
     if (config.module) {
+      const moduleDiscipline = config.module.replace(/—.*$/, '').trim();
       ctx.fillStyle = '#475569';
       ctx.font = '400 16px "JetBrains Mono", monospace';
-      ctx.fillText(config.module.toUpperCase(), 320, badgeY + 32);
+      ctx.fillText(moduleDiscipline.toUpperCase(), 320, badgeY + 32);
     }
 
     // ====== HEADLINE METRIC ======
@@ -844,7 +862,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 
   const LINKEDIN_BORDAO = 'Conhecer para decidir. Decidir para fazer diferença.';
 
-  const LINKEDIN_METHOD_BLOCK = `O Active IA é a metodologia da Galícia Educação que substitui prova por simulação profissional. A inteligência artificial avalia o raciocínio do aluno, não a resposta. Fundamentada em pesquisas de Stanford, UCLA e Harvard sobre como adultos efetivamente desenvolvem competência prática.`;
+  const LINKEDIN_METHOD_BLOCK = `O Active IA é a metodologia da Galícia Educação que substitui prova por simulação profissional. A inteligência artificial avalia o raciocínio do estudante, não a resposta. Fundamentada em pesquisas de Stanford, UCLA e Harvard sobre como adultos efetivamente desenvolvem competência prática.`;
 
   function _slugify(str) {
     return String(str || '')
@@ -887,12 +905,13 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       const role = config.role_context || 'profissional do domínio';
       const articulationProfile = (state.articulationHistory || []).join(' → ') || '—';
 
-      const userMsg = `Produza UM PARÁGRAFO de recapitulação para uma postagem de LinkedIn em primeira pessoa do aluno.
+      const userMsg = `Produza UM PARÁGRAFO de recapitulação para uma postagem de LinkedIn em primeira pessoa do estudante.
 
 CONTEXTO:
-- Nome do simulador: ${config.name}
-- Disciplina/módulo: ${config.module || 'pós-graduação Galícia'}
-- Papel que o aluno assumiu: ${role.substring(0, 300)}
+- Tema/nome do módulo: ${config.name}
+- Curso/disciplina onde o módulo vive: ${config.module || '(não especificado)'}
+- Escola da Galícia: ${config.school || '(não especificado)'}
+- Papel que o estudante assumiu: ${role.substring(0, 300)}
 - Arquétipo do caso (cenário base): ${archetypeDescription}
 - Nível jogado: ${config.levels[state.level].label}
 - Turnos jogados: ${turnsPlayed}
@@ -900,19 +919,22 @@ CONTEXTO:
 - Perfil de articulação turno a turno: ${articulationProfile}
 - Pontos fortes: ${(diagnosis?.strengths || []).map(s => s.description).slice(0, 3).join(' | ')}
 
+IMPORTANTE: NÃO descreva isso como "pós-graduação" no parágrafo. Active IA é experimentado MÓDULO a MÓDULO. O estudante está no módulo "${config.name}" do curso de "${config.module || 'sua área'}". Se precisar referenciar o escopo, fale do MÓDULO específico, não da pós em si.
+
 REQUISITOS DO PARÁGRAFO:
-- Primeira pessoa do aluno ("assumi o papel de...", "conduzi...", "articulei...").
+- Primeira pessoa do estudante ("assumi o papel de...", "conduzi...", "articulei...").
 - 3 a 5 frases. Profissional, sóbrio, sem hipérbole.
-- Mencione concretamente o que o aluno FEZ (não o que aprendeu, não como se sentiu).
+- Mencione concretamente o que o estudante FEZ (não o que aprendeu, não como se sentiu).
 - Pode citar a natureza do caso (sem revelar diagnóstico se for de saúde — fale do desafio enfrentado).
 - Termine com uma frase descrevendo COMO A IA AVALIOU (algo como: "A IA não corrigiu certo ou errado: avaliou as premissas que assumi, os riscos que mapeei, os riscos que ignorei").
 - NÃO use emoji. NÃO use markdown. NÃO use JSON. Apenas o texto do parágrafo.
 - NÃO comece com "Eu". Comece com verbo de ação ou contexto.
+- NUNCA use a palavra "aluno" ou "aluna". Se precisar referenciar o sujeito, use "estudante" ou o papel profissional que assumiu na cena (ex: cirurgião vascular, gestor, advogado).
 
 Apenas o parágrafo. Nada antes, nada depois.`;
 
       const result = await callAPI({
-        systemFixed: 'Você é um redator profissional ajudando um aluno a recapitular sua experiência em uma simulação Active IA da Galícia Educação para postagem no LinkedIn. Tom: profissional, sóbrio, primeira pessoa, sem hipérbole. Apenas texto livre. Nunca JSON, nunca markdown.',
+        systemFixed: 'Você é um redator profissional ajudando um estudante a recapitular sua experiência em uma simulação Active IA da Galícia Educação para postagem no LinkedIn. Tom: profissional, sóbrio, primeira pessoa, sem hipérbole. Apenas texto livre. Nunca JSON, nunca markdown. Nunca use a palavra "aluno" — use "estudante" ou o papel profissional jogado na cena.',
         systemDynamic: 'Modo: geração de parágrafo de recapitulação para postagem LinkedIn.',
         messages: [{ role: 'user', content: userMsg }],
         maxTokens: 500
@@ -934,8 +956,22 @@ Apenas o parágrafo. Nada antes, nada depois.`;
     }
 
     // === Parte 1: abertura padrão ===
-    const moduleRef = config.module ? ` na pós-graduação em ${config.module.replace(/—.*$/, '').trim()}` : '';
-    const intro = `Hoje conclui mais uma simulação Active IA${moduleRef} da Galícia Educação. ${recapBlock}`;
+    // Active IA é experimentado MÓDULO a MÓDULO — cada simulador roda dentro de
+    // um módulo específico de um curso/disciplina. A estrutura editorial firmada:
+    //   "Active IA do módulo em [disciplina] da Galícia Educação"
+    // - disciplina: extraída de config.module, removendo identificadores
+    //   internos do tipo "— Módulo 01" antes do em-dash
+    // - o tema do módulo (config.name) NÃO entra na abertura — ele já aparece
+    //   no card visual e no parágrafo gerado pela IA, evitando redundância
+    const moduleDiscipline = (config.module || '').replace(/—.*$/, '').trim();
+
+    let moduleRef = '';
+    if (moduleDiscipline) {
+      moduleRef = ` do módulo em ${moduleDiscipline} da Galícia Educação`;
+    } else {
+      moduleRef = ' da Galícia Educação';
+    }
+    const intro = `Hoje conclui mais uma simulação Active IA${moduleRef}. ${recapBlock}`;
 
     // === Parte 3, 4, 5: blocos fixos ===
     const hashtags = _buildHashtags(config);
