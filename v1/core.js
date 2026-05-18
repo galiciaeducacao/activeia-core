@@ -28,7 +28,7 @@
   // ==========================================================================
 
   const CORE_VERSION = '1.0.0';
-  const API_URL = 'https://active-ia-proxy.galiciaeducacao.workers.dev';
+  const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev/';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1500;
 
