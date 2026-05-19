@@ -1,11 +1,43 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.6
+ * ACTIVE IA — CORE v1.2.7
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.6 PARA v1.2.7 (refinamentos editoriais do card LinkedIn):
+ *   - REESTRUTURAÇÃO do card LinkedIn em FICHA DE PROPAGANDA (Lição 33):
+ *     • NOVO bloco "DESAFIO" — descreve sucintamente o caso enfrentado,
+ *       reaproveitando a Frase 1 do texto LinkedIn (coerência entre imagem e
+ *       caption). Quando o texto não veio pronto, usa fallback baseado no
+ *       role_context do config.
+ *     • Renomeado "PROCESSO" → "FASES DECISÓRIAS". Em vez de "Caso real do
+ *       mercado · sem múltipla escolha · sem gabarito" (genérico), agora
+ *       lista AS FASES REAIS do simulador (config.phases.map(p => p.name)).
+ *       Para cerebrovascular: "Avaliação clínica · Investigação · Conduta".
+ *       Para gestão, direito, qualquer simulador da fábrica: as próprias
+ *       fases definidas naquela mecânica.
+ *     • COMPETÊNCIAS DEMONSTRADAS agora aceita até 5 (era 3), com font
+ *       ajustada por quantidade (16px se ≤3, 15px se 4-5). Sem fallback fake:
+ *       se diagnosis.strengths vier vazio, o bloco é OMITIDO inteiro —
+ *       publicidade honesta, não invenção.
+ *   - HASHTAGS regra fixa: só #ActiveIA #GalíciaEducação #[Escola]. Removida
+ *     a tag derivada de config.name que gerava lixo (#Doenca, #Marca,
+ *     #Escritorio). A tag de escola institucional (#Saude, #Direito, #Gestao)
+ *     sempre faz sentido como publicidade.
+ *   - PROMPT LINKEDIN aperta a Frase 2: limite duro de 35 palavras (era
+ *     "30-40 com fluidez"), exemplos mais curtos. Proíbe explicitamente
+ *     listar 4+ áreas/especialidades e 3+ travessões. A versão v1.2.6 estava
+ *     produzindo Frase 2 com ~50 palavras enumerando rede multidisciplinar.
+ *   - NOVA função interna _extractChallengeFromCaption(caption) — extrai a
+ *     primeira sentença do recap pra usar no bloco DESAFIO do card. Permite
+ *     coerência entre o que aparece na IMAGEM e o que aparece no TEXTO da
+ *     postagem.
+ *   - REFATORAÇÃO de shareLinkedInModal: caption agora é gerada ANTES do
+ *     card (em vez de em paralelo), pra que o card receba a Frase 1 já
+ *     extraída como precomputedChallenge.
  *
  * MUDANÇAS DA v1.2.5 PARA v1.2.6 (FEAT + correções de produto):
  *   - REDESIGN do card LinkedIn (Caminho A): voltou ao FUNDO CLARO com estética
@@ -80,7 +112,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.6';
+  const CORE_VERSION = '1.2.7';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -1100,9 +1132,11 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
    * @param {Object} state - appState
    * @param {Object} diagnosis - estrutura retornada por generateFinalDiagnosis
    * @param {Object} config - SIMULATOR_CONFIG
+   * @param {string} [precomputedChallenge] - texto curto do desafio (extraído
+   *   da Frase 1 da caption gerada pela IA). Se omitido, usa fallback genérico.
    * @returns {Promise<Blob>} blob image/png 1080×1080
    */
-  async function generateLinkedInCard(state, diagnosis, config) {
+  async function generateLinkedInCard(state, diagnosis, config, precomputedChallenge) {
     try { await document.fonts.ready; } catch (e) {}
 
     const W = 1080, H = 1080;
@@ -1199,56 +1233,116 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     }
     let cursorY = ty + 16;
 
-    // ====== PROCESSO (lista bullet) ======
+    // ====== DESAFIO (texto curto do caso enfrentado) ======
+    // Reaproveita a Frase 1 do texto LinkedIn gerado pela IA (precomputedChallenge).
+    // Se não veio, usa fallback genérico baseado no papel profissional do config.
     ctx.fillStyle = '#0074C7';
     ctx.font = '600 12px "Montserrat", sans-serif';
-    _drawTrackedText(ctx, 'PROCESSO', padL, cursorY, 2);
+    _drawTrackedText(ctx, 'DESAFIO', padL, cursorY, 2);
+    cursorY += 28;
+
+    let challengeText = (precomputedChallenge || '').trim();
+    if (!challengeText) {
+      // Fallback: extrai o role do config sem citar técnicas/escores
+      const role = (config.role_context || '').split(/[.:]/)[0].trim();
+      challengeText = role
+        ? `Assumi o papel de ${role.toLowerCase()} em um caso real do mercado.`
+        : 'Enfrentei um caso real do mercado com decisão sob pressão.';
+    }
+    // Limite duro de 240 chars no card pra caber em 2 linhas confortáveis
+    if (challengeText.length > 240) challengeText = challengeText.substring(0, 237) + '…';
+
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '400 17px "Montserrat", sans-serif';
+    const challengeLines = wrapText(ctx, challengeText, W - padL - padR).slice(0, 3);
+    for (const ln of challengeLines) {
+      ctx.fillText(ln, padL, cursorY);
+      cursorY += 24;
+    }
+    cursorY += 18;
+
+    // ====== FASES DECISÓRIAS (do SIMULATOR_CONFIG.phases) ======
+    // As fases são específicas do simulador. Cerebrovascular: Avaliação clínica · Investigação · Conduta.
+    // Direito: Tese · Argumentação · Decisão. Gestão: Diagnóstico · Plano · Execução. Etc.
+    // Sempre representa fielmente o desenho do simulador específico.
+    ctx.fillStyle = '#0074C7';
+    ctx.font = '600 12px "Montserrat", sans-serif';
+    _drawTrackedText(ctx, 'FASES DECISÓRIAS', padL, cursorY, 2);
     cursorY += 28;
 
     const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
-    const consultantsUsed = state.consultantsUsed || 0;
-    const processItems = [`${turnsPlayed} turnos de decisão sob pressão`];
-    if (consultantsUsed > 0) {
-      processItems.push(`${consultantsUsed} ${consultantsUsed > 1 ? 'consultas profissionais simuladas' : 'consulta profissional simulada'}`);
-    }
-    processItems.push('Caso real do mercado · sem múltipla escolha · sem gabarito');
+    const phaseNames = (config.phases || []).map(p => p.name).filter(Boolean);
+    const phasesLine = phaseNames.length > 0
+      ? phaseNames.join(' · ')
+      : 'Decisão sob pressão';
 
     ctx.fillStyle = '#475569';
     ctx.font = '400 18px "Montserrat", sans-serif';
-    for (const it of processItems) {
-      ctx.fillText('▸  ' + it, padL, cursorY);
+    ctx.fillText('▸  ' + turnsPlayed + ' turnos de decisão sob pressão', padL, cursorY);
+    cursorY += 28;
+    // Quebra fases em múltiplas linhas se necessário
+    const phasesLines = wrapText(ctx, '▸  ' + phasesLine, W - padL - padR).slice(0, 2);
+    for (const ln of phasesLines) {
+      ctx.fillText(ln, padL, cursorY);
       cursorY += 28;
     }
     cursorY += 16;
 
-    // ====== COMPETÊNCIAS DEMONSTRADAS (prosa, não números) ======
-    ctx.fillStyle = '#0074C7';
-    ctx.font = '600 12px "Montserrat", sans-serif';
-    _drawTrackedText(ctx, 'COMPETÊNCIAS DEMONSTRADAS', padL, cursorY, 2);
-    cursorY += 28;
-
+    // ====== COMPETÊNCIAS DEMONSTRADAS (todas as positivas, até 5) ======
+    // Sem fallback fake: se diagnosis.strengths vier vazio, omite o bloco inteiro.
+    // Honestidade pedagógica — se o estudante não demonstrou competências de
+    // destaque, o card não inventa. É publicidade verdadeira.
+    //
+    // TRAVA DE ALTURA: o bordão começa em y=880. As competências não podem
+    // invadir essa área. Se o cursor passar de y=855, paramos de renderizar
+    // novas competências (o estudante ainda recebe as principais; o card
+    // continua publicável).
     const strengths = (diagnosis && diagnosis.strengths) || [];
-    const competencyItems = strengths.slice(0, 3).map(s => {
-      // Corta em 140 chars (Canvas não tem auto-truncate elegante)
-      let txt = (s.description || '').trim();
-      if (txt.length > 140) txt = txt.substring(0, 137) + '...';
-      return txt;
-    });
+    const MAX_Y_COMPETENCIAS = 855;
+    if (strengths.length > 0 && cursorY < MAX_Y_COMPETENCIAS) {
+      ctx.fillStyle = '#0074C7';
+      ctx.font = '600 12px "Montserrat", sans-serif';
+      _drawTrackedText(ctx, 'COMPETÊNCIAS DEMONSTRADAS', padL, cursorY, 2);
+      cursorY += 26;
 
-    if (competencyItems.length === 0) {
-      // Fallback se diagnosis vier vazio
-      competencyItems.push('Conduziu o caso com raciocínio próprio, sem gabarito ou múltipla escolha.');
-    }
+      // Pega até 5 competências. Cada uma corta em 105 chars pra caber em 1 linha confortável.
+      const competencyItems = strengths.slice(0, 5).map(s => {
+        let txt = (s.description || '').trim();
+        if (txt.length > 105) txt = txt.substring(0, 102) + '…';
+        return txt;
+      });
 
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '400 17px "Montserrat", sans-serif';
-    for (const it of competencyItems) {
-      const lines = wrapText(ctx, '•  ' + it, W - padL - padR);
-      for (const ln of lines.slice(0, 2)) {
-        ctx.fillText(ln, padL, cursorY);
-        cursorY += 24;
+      ctx.fillStyle = '#0a1628';
+      // Font ajustada por quantidade: até 3 itens fonte 16, 4 itens fonte 15, 5 itens fonte 14
+      const n = competencyItems.length;
+      const compFontSize = n <= 3 ? 16 : (n === 4 ? 15 : 14);
+      const compLineH = n <= 3 ? 22 : (n === 4 ? 20 : 19);
+      const compGap = n <= 3 ? 4 : (n === 4 ? 3 : 2);
+      ctx.font = `400 ${compFontSize}px "Montserrat", sans-serif`;
+
+      let renderedCount = 0;
+      let omittedCount = 0;
+      for (const it of competencyItems) {
+        const lines = wrapText(ctx, '•  ' + it, W - padL - padR);
+        // Verifica se cabe (com até 2 linhas)
+        const needed = Math.min(lines.length, 2) * compLineH + compGap;
+        if (cursorY + needed > MAX_Y_COMPETENCIAS) {
+          omittedCount = competencyItems.length - renderedCount;
+          break;
+        }
+        for (const ln of lines.slice(0, 2)) {
+          ctx.fillText(ln, padL, cursorY);
+          cursorY += compLineH;
+        }
+        cursorY += compGap;
+        renderedCount++;
       }
-      cursorY += 6;
+      // Se sobrou competência sem espaço, indica
+      if (omittedCount > 0 && cursorY < MAX_Y_COMPETENCIAS) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'italic 400 13px "Montserrat", sans-serif';
+        ctx.fillText(`+ ${omittedCount} outra${omittedCount > 1 ? 's' : ''} competência${omittedCount > 1 ? 's' : ''} no relatório completo`, padL, cursorY);
+      }
     }
 
     // ====== BORDÃO INSTITUCIONAL (caixa de destaque) ======
@@ -1391,21 +1485,45 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       .replace(/^[0-9]+/, '');
   }
 
+  /**
+   * Extrai a primeira sentença "descritiva" do parágrafo de recap da caption
+   * LinkedIn — corresponde à Frase 1 da estrutura do prompt v1.2.6+ (o "desafio").
+   *
+   * A caption tem estrutura:
+   *   "Hoje conclui mais uma simulação Active IA do módulo em [X] da Galícia Educação. [PARAGRAFO_DA_IA]\n\n[BLOCO_FIXO]\n\nConhecer para decidir..."
+   *
+   * O PARAGRAFO_DA_IA começa SEMPRE com a Frase 1 (desafio). Pegamos só essa
+   * frase pra reaproveitar no card (no bloco "DESAFIO").
+   *
+   * @param {string} caption - caption completa gerada por linkedinCaption
+   * @returns {string} primeira sentença da recap, ou string vazia se falhar
+   */
+  function _extractChallengeFromCaption(caption) {
+    if (!caption) return '';
+    // 1. Pega o que vem DEPOIS da frase fixa de abertura (que termina com "Galícia Educação.")
+    const introMatch = caption.match(/Galícia Educação\.\s+([\s\S]+?)(?:\n\n|\n[A-Z])/);
+    if (!introMatch) return '';
+    const recap = introMatch[1].trim();
+
+    // 2. Pega a primeira sentença completa do recap (até o primeiro ponto final
+    //    seguido de espaço/quebra, ignorando reticências e abreviações comuns).
+    //    Usa lookbehind suportado em navegadores modernos.
+    const firstSentence = recap.match(/^[^.!?]+[.!?](?=\s|$)/);
+    if (!firstSentence) return recap.substring(0, 200);
+    return firstSentence[0].trim();
+  }
+
   function _buildHashtags(config) {
+    // Regra fixa firmada em v1.2.7: #ActiveIA + #GalíciaEducação + #[Escola].
+    // Hashtag derivada de config.name foi REMOVIDA — gerava resultados ruins como
+    // #Doenca, #Marca, #Escritorio. O nome do simulador frequentemente começa
+    // por um substantivo solto que vira péssima hashtag publicitária.
+    // A tag #[Escola] é institucional (Saude, Direito, Gestao, etc.) e
+    // sempre faz sentido como publicidade.
     const tags = ['#ActiveIA', '#GalíciaEducação'];
-    // Tag da disciplina/escola
     if (config.school) {
       const schoolTag = '#' + _slugify(config.school);
       if (schoolTag.length > 1) tags.push(schoolTag);
-    }
-    // Tag específica do módulo (se o nome curto cabe)
-    if (config.name) {
-      // Pega primeira palavra significativa do nome do simulador
-      const firstSubstantive = config.name.split(/[\s:]+/)[0];
-      if (firstSubstantive && firstSubstantive.length > 3) {
-        const slug = _slugify(firstSubstantive);
-        if (slug && !tags.includes('#' + slug)) tags.push('#' + slug);
-      }
     }
     return tags.join(' ');
   }
@@ -1442,8 +1560,17 @@ ESTRUTURA OBRIGATÓRIA DO PARÁGRAFO (3 frases ao todo, nesta ordem):
 FRASE 1 — O desafio (1 frase, ~25-35 palavras):
 Em linguagem acessível ao público leigo (mas digna ao profissional), descreva o desafio enfrentado. Use o papel profissional ("Assumi o papel de..." ou "Como cirurgião vascular...") e nomeie o problema central em termos compreensíveis. EVITE jargão técnico denso (escores, siglas, critérios). Exemplo do tom: "Assumi o papel de cirurgião vascular num caso complexo: precisei decidir conduta para um paciente com risco iminente de AVC, em janela apertada para intervenção cirúrgica."
 
-FRASE 2 — Como conduziu (1 frase, ~30-40 palavras):
-Descreva de forma sucinta como o raciocínio se desenvolveu ao longo dos turnos — sem listar técnicas ou escores específicos. Foque em o que precisou ARTICULAR (não em o que sabe). Exemplo do tom: "Conduzi o raciocínio em ${turnsPlayed} turnos, integrando avaliação clínica, interpretação de exames e decisão cirúrgica num único fluxo — sem múltipla escolha, sem gabarito."
+FRASE 2 — Como conduziu (1 frase, MÁXIMO ABSOLUTO 35 palavras):
+Descreva de forma sucinta como o raciocínio se desenvolveu — em uma única ideia, NÃO em uma lista de tudo o que articulou. Foque no movimento principal de raciocínio (não em listar áreas, especialidades, exames ou técnicas). Limite duro: 35 palavras. Se passar disso, corte.
+Exemplos do tom (todos abaixo de 35 palavras):
+- "Conduzi o raciocínio em ${turnsPlayed} turnos, articulando avaliação, exames e conduta num único fluxo — sem múltipla escolha, sem gabarito."
+- "Ao longo de ${turnsPlayed} turnos, precisei integrar leitura clínica, investigação e decisão sem roteiro pronto."
+- "Em ${turnsPlayed} turnos, articulei hipóteses, interpretei exames e decidi conduta — cada turno avaliado pela IA antes do seguinte."
+
+PROIBIDO na Frase 2:
+- Listar 4+ áreas/especialidades (neurologia, cardiologia, etc.) — escolha o movimento de raciocínio, não a rede multidisciplinar
+- Listar 3+ tipos de exame ou técnica
+- Frases com 3 ou mais travessões (—) — sinaliza enumeração excessiva
 
 FRASE 3 — Como a IA avaliou (1 frase, PRESERVAR EXATAMENTE este formato, ajustando só o tempo verbal e detalhe final):
 "A IA não corrigiu certo ou errado: avaliou as premissas que assumi, os riscos que mapeei e os pontos em que meu raciocínio ainda operava de forma incompleta."
@@ -1542,10 +1669,18 @@ ${hashtags}`;
 
     let cardBlob, caption;
     try {
-      [cardBlob, caption] = await Promise.all([
-        generateLinkedInCard(state, diagnosis, config),
-        linkedinCaption(state, diagnosis, config)
-      ]);
+      // Refatoração v1.2.7: caption é gerada PRIMEIRO (não em paralelo),
+      // depois extraímos a Frase 1 (= o "desafio") e passamos pra
+      // generateLinkedInCard. Assim a frase do desafio no card é EXATAMENTE
+      // a mesma que aparece no texto pronto pra postar — coerência visual
+      // e textual entre a imagem e a caption.
+      caption = await linkedinCaption(state, diagnosis, config);
+
+      // Extrai a Frase 1 do parágrafo de recap (a recap é a parte logo após
+      // "Hoje conclui mais uma simulação Active IA...". A Frase 1 é a primeira
+      // sentença da recap, que descreve o desafio.
+      const challenge = _extractChallengeFromCaption(caption);
+      cardBlob = await generateLinkedInCard(state, diagnosis, config, challenge);
     } catch (e) {
       console.error('[ActiveIA] shareLinkedInModal: erro ao gerar material', e);
       updateModalBody(`
