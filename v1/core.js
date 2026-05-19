@@ -1,31 +1,40 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.5
+ * ACTIVE IA — CORE v1.2.6
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
  *
+ * MUDANÇAS DA v1.2.5 PARA v1.2.6 (FEAT + correções de produto):
+ *   - REDESIGN do card LinkedIn (Caminho A): voltou ao FUNDO CLARO com estética
+ *     editorial, zero serif (Montserrat exclusivamente). Removido grid de 3
+ *     métricas-headline e substituído por LISTA EM PROSA das competências
+ *     demonstradas (puxadas de diagnosis.strengths). Sem pill de nível
+ *     Júnior/Pleno/Sênior (desincentivava quem está em Júnior a postar).
+ *     Bordão "Conhecer para decidir. Decidir para fazer diferença." em caixa
+ *     de destaque visual. Selo "MAI-2026" simplificado no canto.
+ *   - SELO PÚBLICO SIMPLIFICADO: getPublicSessionId() agora retorna apenas
+ *     "MAI-2026" (sem hash). O hash anterior virava ruído sem agregar valor.
+ *   - PROMPT LINKEDIN reescrito: estrutura obrigatória de 3 frases (desafio
+ *     em linguagem acessível → como conduziu sucintamente → frase fixa da IA
+ *     preservada). Proibido repetir contexto institucional do módulo/curso
+ *     (já está na frase de abertura). Proibido jargão técnico denso (ABCD2,
+ *     NASCET, etc.) — é peça de publicidade, não de avaliação.
+ *   - NOVO: ActiveIA.export.fullReport(state, diagnosis, config) — gera HTML
+ *     completo com: cabeçalho institucional, indicadores finais, mapa
+ *     conceitual, pontos fortes/frágeis, recomendação, EVOLUÇÃO DOS
+ *     INDICADORES TURNO A TURNO (tabela com mini-barras) e TRANSCRIPT
+ *     COMPLETO (resposta do estudante + narrativa + feedback de cada turno).
+ *     HTML auto-imprimível: botão interno "Salvar como PDF" chama
+ *     window.print(), navegador converte nativamente.
+ *
  * MUDANÇAS DA v1.2.4 PARA v1.2.5 (PATCH crítico de produto):
- *   - CORREÇÃO ESTRATÉGICA: stack do provedor de IA NUNCA mais é exposto ao
- *     estudante. O badge de conexão mostrava "Conectado · claude-sonnet-4-6";
- *     agora mostra apenas "IA conectada". O modal de erro ai_unavailable
- *     mencionava "Anthropic Claude"; agora generaliza "serviços de IA em
- *     tempo real". Active IA é apresentado como produto Galícia próprio.
- *   - MENSAGENS DE LOADING: reescritas para reforçar sensação de consulta
- *     em tempo real sem nomear provedor:
- *       • "Preparando o caso..." → "Carregando o caso · IA conectando..."
- *       • "A cena avança..." → "Aguardando resposta da IA..."
- *       • "Produzindo o diagnóstico final..." → "Consultando IA para
- *          produzir o diagnóstico..."
- *   - CORREÇÃO PEDAGÓGICA: Regra de Proporcionalidade ganha PARTE 4 sobre
- *     indicadores de RISCO (initial != 0). Eles têm semântica diferente
- *     dos indicadores de desempenho: só sobem com decisões protetivas,
- *     descem com decisões arriscadas, permanecem iguais quando o estudante
- *     não decide nada relevante ao risco. Corrige bug onde "Segurança do
- *     Paciente" subia com respostas genéricas no simulador cerebrovascular.
- *     Ver Lições 28 e 29.
+ *   - Stack do provedor de IA NUNCA exposto ao estudante. Badge fala
+ *     "IA conectada". Modal de erro generaliza "serviços externos".
+ *   - Indicadores de RISCO (initial > 0) com semântica própria — não sobem
+ *     com respostas genéricas. PARTE 4 adicionada à Regra de Proporcionalidade.
  *
  * MUDANÇAS DA v1.2.3 PARA v1.2.4 (FEAT + editorial):
  *   - NOVO: ActiveIA.connection — módulo de status em tempo real.
@@ -71,7 +80,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.5';
+  const CORE_VERSION = '1.2.6';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -862,6 +871,194 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  /**
+   * Constrói HTML completo com transcript da sessão + evolução de indicadores
+   * turno a turno. Inclui tudo do dashboard (indicadores, mapa conceitual,
+   * pontos fortes/frágeis, recomendação) MAIS:
+   *   - Tabela de evolução dos indicadores por turno (com mini-barra por valor)
+   *   - Transcript completo turno a turno (resposta do estudante + narrativa
+   *     da IA + feedback + indicadores ao final daquele turno)
+   *
+   * É HTML auto-imprimível: o estudante pode usar Ctrl+P → "Salvar como PDF"
+   * direto no navegador. Estilo @media print fica limpo (sem botões, fundo branco).
+   *
+   * @param {Object} state - appState (com state.turnLog populado)
+   * @param {Object} diagnosis - estrutura retornada por generateFinalDiagnosis
+   * @param {Object} config - SIMULATOR_CONFIG
+   * @returns {string} HTML standalone
+   */
+  function buildFullReportHTML(state, diagnosis, config) {
+    const turnLog = state.turnLog || [];
+
+    // Evolução dos indicadores turno a turno (tabela)
+    const indicatorsEvolutionHTML = (() => {
+      if (turnLog.length === 0) return '<p style="font-size:13px;color:#475569;font-style:italic;">Nenhum turno foi registrado.</p>';
+      const indicatorsList = config.indicators;
+      const headerCells = ['<th style="text-align:left;padding:8px 12px;font-size:11px;color:#475569;border-bottom:2px solid #0a1628;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Turno</th>']
+        .concat(indicatorsList.map(i => `<th style="text-align:left;padding:8px 12px;font-size:11px;color:#475569;border-bottom:2px solid #0a1628;font-weight:600;letter-spacing:1px;text-transform:uppercase;">${i.name}</th>`))
+        .join('');
+      const rows = turnLog.map((t, idx) => {
+        const turnIndicators = t.indicators_snapshot || t.indicators || {};
+        const cells = [`<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:13px;font-weight:600;color:#0a1628;">${idx + 1}</td>`]
+          .concat(indicatorsList.map(i => {
+            const v = turnIndicators[i.id] !== undefined ? turnIndicators[i.id] : 0;
+            const pct = Math.round((v / i.max) * 100);
+            return `<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:12px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-variant-numeric:tabular-nums;font-weight:600;color:#0a1628;min-width:34px;">${Math.round(v)}</span>
+                <div style="flex:1;max-width:120px;height:4px;background:#E2E8F0;border-radius:2px;overflow:hidden;">
+                  <div style="width:${pct}%;height:100%;background:#0074C7;"></div>
+                </div>
+              </div>
+            </td>`;
+          }))
+          .join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      return `<table style="width:100%;border-collapse:collapse;">
+        <thead><tr>${headerCells}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    })();
+
+    // Transcript completo turno a turno
+    const transcriptHTML = turnLog.map((t, idx) => {
+      const turnNumber = idx + 1;
+      const articulationLabel = {
+        articulada: { label: 'Articulação plena', color: '#1D9E75' },
+        parcial: { label: 'Articulação parcial', color: '#BA7517' },
+        generica: { label: 'Articulação genérica', color: '#A32D2D' }
+      };
+      const artMeta = articulationLabel[t.articulation_class] || { label: '—', color: '#94a3b8' };
+
+      const userResponseHTML = t.userResponse
+        ? `<div style="margin-bottom:14px;">
+            <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#0074C7;margin-bottom:6px;">Sua resposta</div>
+            <div style="padding:14px 16px;background:#E8F4FF;border-left:3px solid #0074C7;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.userResponse)}</div>
+          </div>`
+        : '<div style="margin-bottom:14px;font-size:12px;color:#94a3b8;font-style:italic;">(Turno de abertura — sem resposta do estudante.)</div>';
+
+      const narrativeHTML = t.assistantNarrative
+        ? `<div style="margin-bottom:14px;">
+            <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#475569;margin-bottom:6px;">O que aconteceu</div>
+            <div style="padding:14px 16px;background:#FAF7F2;border-left:3px solid #94a3b8;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.assistantNarrative)}</div>
+          </div>`
+        : '';
+
+      const feedbackHTML = t.feedback
+        ? `<div style="margin-bottom:14px;">
+            <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#0F6E56;margin-bottom:6px;">Avaliação da IA</div>
+            <div style="padding:14px 16px;background:#E6F4EC;border-left:3px solid #1D9E75;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.feedback)}</div>
+          </div>`
+        : '';
+
+      return `<div style="margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid #E2E8F0;page-break-inside:avoid;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+          <h3 style="font-family:inherit;font-weight:800;font-size:22px;letter-spacing:-0.02em;color:#0a1628;margin:0;">Turno ${String(turnNumber).padStart(2, '0')}</h3>
+          ${t.articulation_class ? `<span style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:${artMeta.color};">${artMeta.label}</span>` : ''}
+        </div>
+        ${userResponseHTML}
+        ${narrativeHTML}
+        ${feedbackHTML}
+      </div>`;
+    }).join('');
+
+    // Reaproveita os blocos do dashboard
+    const dashboardHTML = buildDashboardHTML(state, diagnosis, config);
+    // Extrai apenas o conteúdo do <body> do dashboard pra reaproveitar
+    const bodyMatch = dashboardHTML.match(/<body>([\s\S]*)<\/body>/);
+    const dashboardBody = bodyMatch ? bodyMatch[1] : '';
+
+    // Injeta as 2 novas seções ANTES do "<div style="margin-top:40px..." (rodapé)
+    // do dashboard
+    const sessionId = getPublicSessionId(state);
+    const moduleDiscipline = (config.module || '').replace(/—.*$/, '').trim();
+    const newSectionsHTML = `
+      <h2>Evolução dos indicadores turno a turno</h2>
+      <p style="font-size:13px;color:#475569;margin:-6px 0 14px;">Como cada indicador se moveu ao longo da sessão. Permite ver onde houve crescimento, estabilidade ou queda.</p>
+      ${indicatorsEvolutionHTML}
+
+      <h2>Transcript completo da sessão</h2>
+      <p style="font-size:13px;color:#475569;margin:-6px 0 20px;">Cada turno: sua resposta, o que aconteceu na cena, e a avaliação da IA. Documento de leitura e estudo.</p>
+      ${transcriptHTML || '<p style="font-size:13px;color:#475569;font-style:italic;">Nenhum turno foi registrado.</p>'}
+    `;
+
+    // Injeta as novas seções logo após "Recomendação de próximo passo" (antes do rodapé)
+    const enhancedBody = dashboardBody.replace(
+      /(<div style="margin-top:40px;[\s\S]*?<\/div>\s*)$/,
+      newSectionsHTML + '$1'
+    );
+
+    // Constrói HTML final, herdando o <head> e estilos do dashboard mas com cabeçalho ampliado
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Relatório completo — ${config.name} — ${state.userName || 'Estudante'}</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600&display=swap" rel="stylesheet">
+<style>
+  @media print {
+    body { background:#fff !important; }
+    .no-print { display:none !important; }
+    h2 { page-break-after:avoid; }
+    h3 { page-break-after:avoid; }
+  }
+  body { font-family:'Gotham','Montserrat',system-ui,-apple-system,sans-serif; background:#FAF7F2; margin:0; padding:32px; color:#0a1628; -webkit-font-smoothing:antialiased; }
+  .container { max-width:900px; margin:0 auto; background:#fff; border-radius:12px; padding:48px; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+  h1 { font-family:inherit; font-weight:800; font-size:34px; letter-spacing:-0.025em; line-height:1.15; margin:0 0 4px; color:#0a1628; }
+  h1 em { font-style:italic; font-weight:800; color:#0074C7; }
+  h2 { font-family:inherit; font-weight:700; font-size:19px; letter-spacing:-0.01em; margin:36px 0 14px; color:#0a1628; border-bottom:2px solid #0074C7; padding-bottom:6px; }
+  h3 { font-family:inherit; }
+  .meta { font-family:inherit; font-weight:600; font-size:11px; color:#475569; letter-spacing:2px; text-transform:uppercase; }
+  table { width:100%; border-collapse:collapse; }
+  ul { padding-left:0; list-style:none; }
+  .print-btn { position:fixed; top:24px; right:24px; background:#0074C7; color:#fff; padding:10px 18px; border-radius:8px; font-family:inherit; font-weight:600; font-size:13px; letter-spacing:0.5px; border:none; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.15); }
+  .print-btn:hover { background:#005a9e; }
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">📄 Salvar como PDF</button>
+<div class="container">
+  <div style="border-bottom:1px solid #E2E8F0; padding-bottom:20px; margin-bottom:24px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:14px;flex-wrap:wrap;">
+      <div class="meta">RELATÓRIO COMPLETO · ACTIVE IA · GALÍCIA EDUCAÇÃO</div>
+      <div style="text-align:right;">
+        <div style="font-size:9.5px;font-weight:600;letter-spacing:2px;color:#94a3b8;text-transform:uppercase;margin-bottom:2px;">Sessão</div>
+        <div style="font-size:14px;font-weight:600;color:#0074C7;letter-spacing:0.5px;">${sessionId}</div>
+      </div>
+    </div>
+    <h1>${escapeHTML(config.name)}</h1>
+    <div style="font-size:14px;color:#475569;margin-top:8px;line-height:1.6;">
+      <strong>${escapeHTML(state.userName || 'Estudante')}</strong> conduziu ${turnLog.length} ${turnLog.length === 1 ? 'turno' : 'turnos'} no nível ${config.levels[state.level].label}${moduleDiscipline ? ` · módulo de ${moduleDiscipline}` : ''}.<br>
+      <span style="font-size:12px;color:#94a3b8;">Concluído em ${new Date(state.completedAt || Date.now()).toLocaleString('pt-BR')}</span>
+    </div>
+  </div>
+
+  ${enhancedBody.replace(/<div style="border-bottom:1px solid #E2E8F0[\s\S]*?<\/div>\s*<h2>/, '<h2>')}
+</div>
+</body>
+</html>`;
+  }
+
+  /**
+   * Dispara download do relatório completo (HTML auto-imprimível).
+   * O HTML inclui botão "Salvar como PDF" que chama window.print() —
+   * o navegador converte pra PDF nativamente.
+   */
+  function exportFullReportHTML(state, diagnosis, config) {
+    const html = buildFullReportHTML(state, diagnosis, config);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = (state.userName || 'estudante').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    a.download = `relatorio-${config.id}-${safeName}-${Date.now()}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function exportSessionPDF(state, diagnosis, config) {
     const html = buildDashboardHTML(state, diagnosis, config);
     const win = window.open('', '_blank');
@@ -884,19 +1081,21 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
   // ==========================================================================
 
   /**
-   * Gera o card LinkedIn 1080×1080 na estética "Dossiê de portfólio" (Mockup 13).
+   * Gera o card LinkedIn 1080×1080 (v1.2.6 — Caminho A: claro, editorial).
    *
-   * Linguagem visual:
-   *   - Fundo dark navy com gradiente diagonal sutil (Galícia)
-   *   - Barra-gradiente Galícia no topo (4px)
-   *   - Glow radial cyan no canto superior direito (assinatura v3)
-   *   - Eyebrow + nome do estudante em hierarquia editorial (peso 800, letter-spacing -0.03em)
-   *   - Selo público de sessão único (canto superior direito): "MAI-2026 · K7M9Z"
-   *   - Três métricas-headline em grid 3 colunas (articulação, domínio conceitual, próximo passo)
-   *   - Bordão institucional + data + local
+   * Decisão de produto: o card é peça de PROPAGANDA do estudante e da Galícia
+   * no LinkedIn. Por isso:
+   *   - Fundo claro (legibilidade no feed, sensação editorial elegante)
+   *   - Sem nível Júnior/Pleno/Sênior (desincentiva quem está em Júnior a postar)
+   *   - Sem grid de números frios (8 de 9, 8 de 15) — substitui por PROSA de
+   *     competências demonstradas, que vende muito melhor
+   *   - Bordão "Conhecer para decidir. Decidir para fazer diferença." em
+   *     destaque visual (caixa lateral com tint cyan)
+   *   - Selo simples MAI-2026 no canto (sem hash, decisão v1.2.6)
    *
-   * REGRA DURA DE TIPOGRAFIA (Lição 25): só Montserrat. Gotham não está disponível
-   * em Canvas runtime, então fallback Montserrat é a fonte real. ZERO serif.
+   * REGRA DURA DE TIPOGRAFIA (Lição 25): Montserrat exclusivamente (Gotham não
+   * roda em Canvas runtime). Hierarquia construída com peso/tamanho/letter-spacing
+   * e itálico — nenhuma fonte com serifa.
    *
    * @param {Object} state - appState
    * @param {Object} diagnosis - estrutura retornada por generateFinalDiagnosis
@@ -912,10 +1111,10 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     canvas.height = H;
     const ctx = canvas.getContext('2d');
 
-    // ====== FUNDO: dark navy com gradiente diagonal sutil ======
-    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-    bgGrad.addColorStop(0, '#0a1628');
-    bgGrad.addColorStop(1, '#102540');
+    // ====== FUNDO CLARO COM GRADIENTE SUTIL ======
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#FAF7F2');
+    bgGrad.addColorStop(1, '#F2EDE4');
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, W, H);
 
@@ -927,211 +1126,175 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     ctx.fillStyle = topBar;
     ctx.fillRect(0, 0, W, 6);
 
-    // ====== GLOW RADIAL CYAN (canto superior direito) ======
-    const glow = ctx.createRadialGradient(W + 50, -50, 0, W + 50, -50, 520);
-    glow.addColorStop(0, 'rgba(0,189,255,0.20)');
-    glow.addColorStop(0.6, 'rgba(0,189,255,0.04)');
-    glow.addColorStop(1, 'rgba(0,189,255,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
-
-    // ====== EYEBROW (com tracinho) ======
     const padL = 80, padR = 80;
+
+    // ====== EYEBROW + SELO DE SESSÃO ======
     const eyeY = 110;
-    // Tracinho
-    ctx.fillStyle = '#91F2FF';
-    ctx.fillRect(padL, eyeY - 1, 36, 2);
-    // Texto
-    ctx.fillStyle = '#91F2FF';
+    ctx.fillStyle = '#0074C7';
     ctx.font = '600 14px "Montserrat", sans-serif';
     ctx.textBaseline = 'alphabetic';
-    // Letter-spacing manual: percorre char por char
-    _drawTrackedText(ctx, 'ACTIVE IA · GALÍCIA EDUCAÇÃO', padL + 56, eyeY + 5, 2.5);
+    _drawTrackedText(ctx, 'ACTIVE IA · GALÍCIA EDUCAÇÃO', padL, eyeY, 2.5);
 
-    // ====== SELO PÚBLICO DE SESSÃO (canto superior direito) ======
+    // Selo público à direita
     const sessionId = getPublicSessionId(state);
-    ctx.fillStyle = 'rgba(145,242,255,0.55)';
-    ctx.font = '600 12px "Montserrat", sans-serif';
+    ctx.fillStyle = 'rgba(71,85,105,0.7)';
+    ctx.font = '600 11px "Montserrat", sans-serif';
     ctx.textAlign = 'right';
-    _drawTrackedText(ctx, 'SESSÃO', W - padR, eyeY - 12, 2);
-    ctx.fillStyle = '#91F2FF';
-    ctx.font = '600 16px "Montserrat", sans-serif';
-    ctx.fillText(sessionId, W - padR, eyeY + 12);
+    _drawTrackedText(ctx, 'SESSÃO', W - padR, eyeY - 14, 2);
+    ctx.fillStyle = '#0074C7';
+    ctx.font = '600 15px "Montserrat", sans-serif';
+    ctx.fillText(sessionId, W - padR, eyeY + 8);
     ctx.textAlign = 'left';
 
-    // ====== EYEBROW DOSSIÊ ======
-    const dossieEyeY = 200;
-    ctx.fillStyle = '#91F2FF';
-    ctx.font = '600 13px "Montserrat", sans-serif';
-    _drawTrackedText(ctx, 'DOSSIÊ DE SESSÃO', padL, dossieEyeY, 2.5);
+    // Linha divisória sutil
+    ctx.strokeStyle = '#D9D0C4';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, eyeY + 28);
+    ctx.lineTo(W - padR, eyeY + 28);
+    ctx.stroke();
 
-    // ====== NOME DO ESTUDANTE (peça monumental) ======
-    // Montserrat ExtraBold 80px, letter-spacing -0.03em simulado, primeiro nome em branco,
-    // sobrenome em itálico cyan
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '800 80px "Montserrat", sans-serif';
+    // ====== NOME DO ESTUDANTE (peça monumental, fundo claro) ======
+    // Montserrat ExtraBold 80px, primeiro nome em navy + sobrenome em italic cyan azul
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '800 76px "Montserrat", sans-serif';
     const userName = (state.userName || 'Estudante').trim();
     const nameParts = userName.split(/\s+/);
     const firstName = nameParts[0] || userName;
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
-    const nameY = 270;
-    // Primeiro nome
+    const nameY = 230;
     ctx.fillText(firstName, padL, nameY);
     const firstNameW = ctx.measureText(firstName).width;
 
-    // Sobrenome em itálico cyan (se houver)
     if (lastName) {
-      // Quebra linha se necessário (sobrenomes longos)
       const totalW = firstNameW + ctx.measureText(' ' + lastName).width;
       if (totalW < W - padL - padR) {
-        ctx.fillStyle = '#00BDFF';
-        ctx.font = 'italic 800 80px "Montserrat", sans-serif';
+        ctx.fillStyle = '#0074C7';
+        ctx.font = 'italic 800 76px "Montserrat", sans-serif';
         ctx.fillText(' ' + lastName, padL + firstNameW, nameY);
       } else {
-        // Sobrenome na linha de baixo
-        ctx.fillStyle = '#00BDFF';
-        ctx.font = 'italic 800 80px "Montserrat", sans-serif';
-        ctx.fillText(lastName, padL, nameY + 86);
+        ctx.fillStyle = '#0074C7';
+        ctx.font = 'italic 800 76px "Montserrat", sans-serif';
+        ctx.fillText(lastName, padL, nameY + 80);
       }
     }
-    const nameEndY = (lastName && (firstNameW + ctx.measureText(' ' + lastName).width >= W - padL - padR)) ? nameY + 86 : nameY;
+    const hasLineBreak = lastName && (firstNameW + ctx.measureText(' ' + lastName).width >= W - padL - padR);
+    const nameEndY = hasLineBreak ? nameY + 80 : nameY;
 
-    // ====== DESCRIÇÃO DA SESSÃO ======
-    const descY = nameEndY + 56;
-    ctx.fillStyle = 'rgba(255,255,255,0.72)';
-    ctx.font = '400 19px "Montserrat", sans-serif';
-    const moduleDiscipline = (config.module || '').replace(/—.*$/, '').trim();
+    // Subtítulo (linha descritiva)
+    ctx.fillStyle = '#475569';
+    ctx.font = '400 20px "Montserrat", sans-serif';
+    ctx.fillText('concluiu a simulação profissional', padL, nameEndY + 36);
+
+    // ====== TÍTULO DO MÓDULO ======
     const moduleTopic = (config.name || '').split(':')[0].trim();
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '700 30px "Montserrat", sans-serif';
+    const titleLines = wrapText(ctx, moduleTopic, W - padL - padR).slice(0, 2);
+    let ty = nameEndY + 80;
+    for (const ln of titleLines) {
+      ctx.fillText(ln, padL, ty);
+      ty += 38;
+    }
+    let cursorY = ty + 16;
+
+    // ====== PROCESSO (lista bullet) ======
+    ctx.fillStyle = '#0074C7';
+    ctx.font = '600 12px "Montserrat", sans-serif';
+    _drawTrackedText(ctx, 'PROCESSO', padL, cursorY, 2);
+    cursorY += 28;
+
     const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
-    const levelLabel = config.levels[state.level].label;
-    const descText = `Concluiu a simulação "${moduleTopic}" no nível ${levelLabel} · ${turnsPlayed} turnos · módulo de ${moduleDiscipline}.`;
-    const descLines = wrapText(ctx, descText, W - padL - padR).slice(0, 3);
-    let dy = descY;
-    for (const ln of descLines) {
-      ctx.fillText(ln, padL, dy);
-      dy += 30;
+    const consultantsUsed = state.consultantsUsed || 0;
+    const processItems = [`${turnsPlayed} turnos de decisão sob pressão`];
+    if (consultantsUsed > 0) {
+      processItems.push(`${consultantsUsed} ${consultantsUsed > 1 ? 'consultas profissionais simuladas' : 'consulta profissional simulada'}`);
+    }
+    processItems.push('Caso real do mercado · sem múltipla escolha · sem gabarito');
+
+    ctx.fillStyle = '#475569';
+    ctx.font = '400 18px "Montserrat", sans-serif';
+    for (const it of processItems) {
+      ctx.fillText('▸  ' + it, padL, cursorY);
+      cursorY += 28;
+    }
+    cursorY += 16;
+
+    // ====== COMPETÊNCIAS DEMONSTRADAS (prosa, não números) ======
+    ctx.fillStyle = '#0074C7';
+    ctx.font = '600 12px "Montserrat", sans-serif';
+    _drawTrackedText(ctx, 'COMPETÊNCIAS DEMONSTRADAS', padL, cursorY, 2);
+    cursorY += 28;
+
+    const strengths = (diagnosis && diagnosis.strengths) || [];
+    const competencyItems = strengths.slice(0, 3).map(s => {
+      // Corta em 140 chars (Canvas não tem auto-truncate elegante)
+      let txt = (s.description || '').trim();
+      if (txt.length > 140) txt = txt.substring(0, 137) + '...';
+      return txt;
+    });
+
+    if (competencyItems.length === 0) {
+      // Fallback se diagnosis vier vazio
+      competencyItems.push('Conduziu o caso com raciocínio próprio, sem gabarito ou múltipla escolha.');
     }
 
-    // ====== GRID 3 MÉTRICAS-HEADLINE ======
-    const gridY = dy + 36;
-    const gridH = 168;
-    const gapBetween = 1;
-    const cellW = Math.floor((W - padL - padR - 2 * gapBetween) / 3);
-
-    // Borda externa sutil + fundo das células com tint cyan
-    const cellBg = 'rgba(10,22,40,0.55)';
-    const borderColor = 'rgba(145,242,255,0.22)';
-
-    // Calcula métricas
-    const articulationDone = (state.articulationHistory || []).filter(a => a === 'articulada').length;
-    const articulationTotal = (state.articulationHistory || []).length || turnsPlayed;
-    const conceptsTotal = (config.concepts || []).length;
-    const conceptsMastered = diagnosis && diagnosis.concept_map
-      ? Object.values(diagnosis.concept_map).filter(s => s === 'dominado').length
-      : 0;
-    const nextAction = diagnosis && diagnosis.next_step_recommendation
-      ? _nextStepLabel(diagnosis.next_step_recommendation.action, config, state.level)
-      : '—';
-
-    const metrics = [
-      {
-        eyebrow: 'ARTICULAÇÃO',
-        value: `${articulationDone} de ${articulationTotal}`,
-        sub: 'turnos com articulação completa'
-      },
-      {
-        eyebrow: 'DOMÍNIO CONCEITUAL',
-        value: `${conceptsMastered} de ${conceptsTotal}`,
-        sub: 'conceitos do módulo dominados'
-      },
-      {
-        eyebrow: 'PRÓXIMO PASSO',
-        value: nextAction,
-        sub: 'recomendação Active IA'
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '400 17px "Montserrat", sans-serif';
+    for (const it of competencyItems) {
+      const lines = wrapText(ctx, '•  ' + it, W - padL - padR);
+      for (const ln of lines.slice(0, 2)) {
+        ctx.fillText(ln, padL, cursorY);
+        cursorY += 24;
       }
-    ];
-
-    // Desenha as 3 células
-    for (let i = 0; i < 3; i++) {
-      const cx = padL + i * (cellW + gapBetween);
-      // fundo
-      ctx.fillStyle = cellBg;
-      ctx.fillRect(cx, gridY, cellW, gridH);
-      // borda
-      ctx.strokeStyle = borderColor;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(cx + 0.5, gridY + 0.5, cellW - 1, gridH - 1);
-
-      const m = metrics[i];
-      // eyebrow
-      ctx.fillStyle = '#91F2FF';
-      ctx.font = '600 11px "Montserrat", sans-serif';
-      _drawTrackedText(ctx, m.eyebrow, cx + 24, gridY + 30, 1.8);
-      // value
-      ctx.fillStyle = '#FFFFFF';
-      // Se for "Próximo passo" (texto), usa fonte menor; se for número, fonte grande
-      const isNumeric = /^\d/.test(m.value);
-      if (isNumeric) {
-        ctx.font = '800 38px "Montserrat", sans-serif';
-      } else {
-        ctx.font = '700 19px "Montserrat", sans-serif';
-      }
-      const valueLines = isNumeric ? [m.value] : wrapText(ctx, m.value, cellW - 48).slice(0, 2);
-      let vy = isNumeric ? gridY + 82 : gridY + 70;
-      for (const ln of valueLines) {
-        ctx.fillText(ln, cx + 24, vy);
-        vy += isNumeric ? 40 : 24;
-      }
-      // sub
-      ctx.fillStyle = 'rgba(255,255,255,0.65)';
-      ctx.font = '400 12px "Montserrat", sans-serif';
-      const subLines = wrapText(ctx, m.sub, cellW - 48).slice(0, 2);
-      let sy = gridY + gridH - 32;
-      if (subLines.length === 2) sy -= 14;
-      for (const ln of subLines) {
-        ctx.fillText(ln, cx + 24, sy);
-        sy += 16;
-      }
+      cursorY += 6;
     }
 
-    // ====== BORDÃO INSTITUCIONAL (centro-baixo) ======
-    const bordaoY = gridY + gridH + 80;
-    ctx.fillStyle = 'rgba(145,242,255,0.18)';
-    ctx.fillRect(padL, bordaoY - 36, 4, 72);
-    ctx.fillStyle = '#FFFFFF';
+    // ====== BORDÃO INSTITUCIONAL (caixa de destaque) ======
+    // Posição fixa próxima ao rodapé
+    const bordaoY = 880;
+    const bordaoH = 78;
+    // Fundo tint cyan claro
+    ctx.fillStyle = '#E8F4FF';
+    ctx.fillRect(padL, bordaoY, W - padL - padR, bordaoH);
+    // Barra lateral de destaque
+    ctx.fillStyle = '#0074C7';
+    ctx.fillRect(padL, bordaoY, 4, bordaoH);
+    // Texto
+    ctx.fillStyle = '#0a1628';
     ctx.font = '500 22px "Montserrat", sans-serif';
-    ctx.fillText('Conhecer para decidir.', padL + 24, bordaoY - 4);
-    ctx.fillStyle = '#91F2FF';
-    ctx.font = '600 22px "Montserrat", sans-serif';
-    ctx.fillText('Decidir para fazer diferença.', padL + 24, bordaoY + 28);
+    ctx.fillText('Conhecer para decidir.', padL + 24, bordaoY + 32);
+    ctx.fillStyle = '#0074C7';
+    ctx.font = 'italic 600 22px "Montserrat", sans-serif';
+    ctx.fillText('Decidir para fazer diferença.', padL + 24, bordaoY + 60);
 
     // ====== RODAPÉ ======
-    // Linha sutil acima do rodapé
-    ctx.strokeStyle = 'rgba(145,242,255,0.18)';
+    // Linha sutil
+    ctx.strokeStyle = '#D9D0C4';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(padL, H - 90);
-    ctx.lineTo(W - padR, H - 90);
+    ctx.moveTo(padL, H - 78);
+    ctx.lineTo(W - padR, H - 78);
     ctx.stroke();
 
-    // Data + local (esquerda)
-    ctx.fillStyle = 'rgba(145,242,255,0.55)';
-    ctx.font = '500 12px "Montserrat", sans-serif';
-    const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-    ctx.fillText(dateStr, padL, H - 60);
-
-    // Método (direita)
-    ctx.fillStyle = '#91F2FF';
+    // Método (esquerda)
+    ctx.fillStyle = '#0074C7';
     ctx.font = '600 12px "Montserrat", sans-serif';
-    ctx.textAlign = 'right';
-    _drawTrackedText(ctx, 'MÉTODO ACTIVE IA', W - padR, H - 60, 2.5);
-    ctx.textAlign = 'left';
+    _drawTrackedText(ctx, 'MÉTODO ACTIVE IA', padL, H - 50, 2.5);
 
     // Subtítulo rodapé
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.font = '400 11.5px "Montserrat", sans-serif';
-    ctx.fillText('Simulação profissional avaliada por IA em tempo real', padL, H - 38);
+    ctx.fillStyle = '#475569';
+    ctx.font = '400 12px "Montserrat", sans-serif';
+    ctx.fillText('Simulação profissional avaliada por IA em tempo real · Galícia Educação', padL, H - 28);
+
+    // Data (direita)
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '500 12px "Montserrat", sans-serif';
+    const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    ctx.textAlign = 'right';
+    ctx.fillText(dateStr, W - padR, H - 28);
+    ctx.textAlign = 'left';
 
     // Barra gradiente Galícia no rodapé (espelha o topo)
     ctx.fillStyle = topBar;
@@ -1139,6 +1302,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 
     return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
   }
+
 
   /**
    * Desenha texto com letter-spacing simulado (Canvas não suporta letter-spacing nativo).
@@ -1263,31 +1427,37 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 
       const userMsg = `Produza UM PARÁGRAFO de recapitulação para uma postagem de LinkedIn em primeira pessoa do estudante.
 
-CONTEXTO:
-- Tema/nome do módulo: ${config.name}
-- Curso/disciplina onde o módulo vive: ${config.module || '(não especificado)'}
-- Escola da Galícia: ${config.school || '(não especificado)'}
-- Papel que o estudante assumiu: ${role.substring(0, 300)}
-- Arquétipo do caso (cenário base): ${archetypeDescription}
-- Nível jogado: ${config.levels[state.level].label}
-- Turnos jogados: ${turnsPlayed}
-- Consultas a colegas: ${consultantsUsed}
-- Perfil de articulação turno a turno: ${articulationProfile}
-- Pontos fortes: ${(diagnosis?.strengths || []).map(s => s.description).slice(0, 3).join(' | ')}
+CONTEXTO (apenas para você entender — NÃO repita literalmente no parágrafo):
+- Papel profissional assumido: ${role.substring(0, 300)}
+- Natureza do caso (arquétipo): ${archetypeDescription}
+- Turnos conduzidos: ${turnsPlayed}
+- Consultas a colegas/especialistas durante a sessão: ${consultantsUsed}
+- Pontos fortes da condução: ${(diagnosis?.strengths || []).map(s => s.description).slice(0, 3).join(' | ')}
 
-IMPORTANTE: NÃO descreva isso como "pós-graduação" no parágrafo. Active IA é experimentado MÓDULO a MÓDULO. O estudante está no módulo "${config.name}" do curso de "${config.module || 'sua área'}". Se precisar referenciar o escopo, fale do MÓDULO específico, não da pós em si.
+REGRA EDITORIAL PRINCIPAL (IMPORTANTE):
+O parágrafo NÃO repete a localização do módulo, escola, curso ou Galícia — isso já aparece na frase de abertura "Hoje conclui mais uma simulação Active IA do módulo em [disciplina] da Galícia Educação". Você começa o parágrafo DIRETO no conteúdo da experiência, sem repetir contexto institucional.
 
-REQUISITOS DO PARÁGRAFO:
-- Primeira pessoa do estudante ("assumi o papel de...", "conduzi...", "articulei...").
-- 3 a 5 frases. Profissional, sóbrio, sem hipérbole.
-- Mencione concretamente o que o estudante FEZ (não o que aprendeu, não como se sentiu).
-- Pode citar a natureza do caso (sem revelar diagnóstico se for de saúde — fale do desafio enfrentado).
-- Termine com uma frase descrevendo COMO A IA AVALIOU (algo como: "A IA não corrigiu certo ou errado: avaliou as premissas que assumi, os riscos que mapeei, os riscos que ignorei").
+ESTRUTURA OBRIGATÓRIA DO PARÁGRAFO (3 frases ao todo, nesta ordem):
+
+FRASE 1 — O desafio (1 frase, ~25-35 palavras):
+Em linguagem acessível ao público leigo (mas digna ao profissional), descreva o desafio enfrentado. Use o papel profissional ("Assumi o papel de..." ou "Como cirurgião vascular...") e nomeie o problema central em termos compreensíveis. EVITE jargão técnico denso (escores, siglas, critérios). Exemplo do tom: "Assumi o papel de cirurgião vascular num caso complexo: precisei decidir conduta para um paciente com risco iminente de AVC, em janela apertada para intervenção cirúrgica."
+
+FRASE 2 — Como conduziu (1 frase, ~30-40 palavras):
+Descreva de forma sucinta como o raciocínio se desenvolveu ao longo dos turnos — sem listar técnicas ou escores específicos. Foque em o que precisou ARTICULAR (não em o que sabe). Exemplo do tom: "Conduzi o raciocínio em ${turnsPlayed} turnos, integrando avaliação clínica, interpretação de exames e decisão cirúrgica num único fluxo — sem múltipla escolha, sem gabarito."
+
+FRASE 3 — Como a IA avaliou (1 frase, PRESERVAR EXATAMENTE este formato, ajustando só o tempo verbal e detalhe final):
+"A IA não corrigiu certo ou errado: avaliou as premissas que assumi, os riscos que mapeei e os pontos em que meu raciocínio ainda operava de forma incompleta."
+
+REGRAS GERAIS:
+- Primeira pessoa do estudante ("assumi", "conduzi", "articulei").
+- 3 frases (nem mais nem menos). Profissional, sóbrio, sem hipérbole.
+- NÃO mencione: pós-graduação, módulo, curso, Galícia, escola (já está na frase de abertura).
+- NÃO use escores/siglas técnicas densas (ABCD2, NASCET, ASPECTS, DAPT etc.). O LinkedIn é peça de publicidade — quem é da área já entende a profundidade, quem não é precisa entender o desafio.
 - NÃO use emoji. NÃO use markdown. NÃO use JSON. Apenas o texto do parágrafo.
-- NÃO comece com "Eu". Comece com verbo de ação ou contexto.
-- NUNCA use a palavra "aluno" ou "aluna". Se precisar referenciar o sujeito, use "estudante" ou o papel profissional que assumiu na cena (ex: cirurgião vascular, gestor, advogado).
+- NÃO comece com "Eu". Comece com verbo de ação ou "Como [papel profissional]".
+- NUNCA use a palavra "aluno" ou "aluna" — use o papel profissional assumido na cena, ou "estudante" se precisar referência genérica.
 
-Apenas o parágrafo. Nada antes, nada depois.`;
+Apenas o parágrafo (3 frases). Nada antes, nada depois.`;
 
       const result = await callAPI({
         systemFixed: 'Você é um redator profissional ajudando um estudante a recapitular sua experiência em uma simulação Active IA da Galícia Educação para postagem no LinkedIn. Tom: profissional, sóbrio, primeira pessoa, sem hipérbole. Apenas texto livre. Nunca JSON, nunca markdown. Nunca use a palavra "aluno" — use "estudante" ou o papel profissional jogado na cena.',
@@ -1701,36 +1871,20 @@ ${hashtags}`;
 
   /**
    * Gera um selo público de sessão para uso visual no dossiê e no card LinkedIn.
-   * Formato: "MAI-2026 · K7M9Z" — mês-ano + hash curto (5 chars, base32) derivado
-   * de startedAt + userName. Não é segredo, não é seguro, não é único globalmente;
-   * é apenas uma marca visual estável que dá sensação de "número de matrícula"
-   * pra peça publicável.
+   * Formato simplificado v1.2.6: "MAI-2026" — mês-ano da sessão. Marca temporal
+   * elegante, sem hash opaco. O hash anterior (KSM9Z) confundia mais do que
+   * ajudava — não tinha função além de identidade visual, e como o pacote
+   * inteiro já tem outras peças de identidade (nome do estudante, data, módulo),
+   * o hash extra virava ruído.
    *
-   * @param {Object} state - appState com startedAt e userName
-   * @returns {string} ex: "MAI-2026 · K7M9Z"
+   * @param {Object} state - appState com startedAt
+   * @returns {string} ex: "MAI-2026"
    */
   function getPublicSessionId(state) {
     if (!state || !state.startedAt) return '—';
     const date = new Date(state.startedAt);
     const months = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
-    const monthLabel = `${months[date.getMonth()]}-${date.getFullYear()}`;
-
-    // Hash curto baseado em startedAt + userName (estável, mas opaco)
-    const seed = `${state.startedAt}|${state.userName || 'anon'}`;
-    let h = 5381;
-    for (let i = 0; i < seed.length; i++) {
-      h = ((h << 5) + h) ^ seed.charCodeAt(i);
-      h = h >>> 0; // força unsigned 32 bits
-    }
-    // Converte pra base32 (Crockford-ish: sem 0/O/1/I/L pra não confundir leitor)
-    const alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-    let hash = '';
-    let n = h;
-    for (let i = 0; i < 5; i++) {
-      hash = alphabet[n % alphabet.length] + hash;
-      n = Math.floor(n / alphabet.length);
-    }
-    return `${monthLabel} · ${hash}`;
+    return `${months[date.getMonth()]}-${date.getFullYear()}`;
   }
 
   // ==========================================================================
@@ -2261,6 +2415,7 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     export: {
       html: exportSessionHTML,
       pdf: exportSessionPDF,
+      fullReport: exportFullReportHTML,
       linkedinCard: generateLinkedInCard,
       linkedinCaption: linkedinCaption,
       shareLinkedInModal: shareLinkedInModal,
