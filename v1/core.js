@@ -1,45 +1,68 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.3
+ * ACTIVE IA — CORE v1.2.4
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
  *
+ * MUDANÇAS DA v1.2.3 PARA v1.2.4 (FEAT + editorial):
+ *   - NOVO: ActiveIA.connection — módulo de status de conexão em tempo real.
+ *     getConnectionStatus() retorna {state, isOnline, lastApiOk, lastError}.
+ *     onConnectionChange(fn) registra callback. Listeners globais de online/
+ *     offline já configurados. Comunica ao estudante que o ambiente é online.
+ *   - NOVO: ActiveIA.errors — classificação de erros em 5 kinds (offline,
+ *     network, ai_unavailable, bad_response, technical). Cada um com título,
+ *     mensagem, explainer e CTA específicos. Mensagens distinguem rede do
+ *     estudante, IA externa indisponível, formato inesperado, técnico.
+ *     Explainer de IA externa explicita que a Anthropic está fora do
+ *     controle direto da Galícia (eximir responsabilidade).
+ *   - NOVO: ActiveIA.ui.showErrorFromException(error, onRetry) — modal Galícia
+ *     diagnóstico que substitui o error-box genérico. Inclui detalhes técnicos
+ *     em <details> colapsável.
+ *   - NOVO: ActiveIA.ui.mountConnectionBadge(target) — injeta indicador
+ *     permanente de status (dot verde/cinza/vermelho + label) na topbar.
+ *     Atualiza em tempo real conforme chamadas API têm sucesso/falha.
+ *   - NOVO: ActiveIA.session.publicId(state) — gera selo público formato
+ *     "MAI-2026 · K7M9Z" para uso no dossiê e card LinkedIn. Hash estável
+ *     baseado em startedAt + userName.
+ *   - REDESIGN: generateLinkedInCard reescrito na estética "Dossiê de portfólio"
+ *     (Mockup 13 do catálogo). Dark navy, gradiente Galícia, glow cyan,
+ *     selo público no header, nome do estudante em 80px com sobrenome em
+ *     itálico cyan, grid 3 métricas-headline (articulação/domínio/próximo
+ *     passo), bordão institucional, rodapé com data e método.
+ *   - TIPOGRAFIA (Lição 25): banido Playfair Display, Georgia, JetBrains Mono
+ *     e qualquer fonte com serifa do core inteiro. Toda tipografia agora usa
+ *     Gotham (com fallback Montserrat) no DOM e Montserrat puro no Canvas
+ *     (que não tem acesso a Gotham em runtime). Hierarquia editorial
+ *     construída via peso, tamanho, letter-spacing e itálico — não troca
+ *     de família. ZERO serif no core.
+ *   - callAPI agora lança erros classificados (com .kind, .userMessage,
+ *     .recoverable) em vez de Error genérico. Consumidores devem usar
+ *     ActiveIA.ui.showErrorFromException em vez de showError(string).
+ *
  * MUDANÇAS DA v1.2.2 PARA v1.2.3 (PATCH editorial):
  *   - VOCABULÁRIO: substituído "aluno/alunos/aluna" por "estudante" em TODOS
- *     os textos expostos ao usuário (prompts da IA, fallback de copy LinkedIn,
- *     bloco fixo da metodologia, prompts dos motores de avaliação e diagnóstico).
- *     "Aluno" infantiliza num método que forma profissionais. "Estudante" é
- *     neutro de gênero e mantém o ato de estudar.
+ *     os textos expostos ao usuário.
  *   - ESTRUTURA LinkedIn: nova abertura editorial firmada
- *     "Active IA do módulo em [disciplina] da Galícia Educação"
- *     (formato pedido pelo gestor do projeto). Tema do módulo não entra na
- *     abertura — já aparece no card visual e no parágrafo gerado pela IA.
- *   - PROMPT LinkedIn: instrução explícita à IA para nunca usar "aluno",
- *     usar "estudante" ou o papel profissional jogado na cena.
+ *     "Active IA do módulo em [disciplina] da Galícia Educação".
+ *   - PROMPT LinkedIn: instrução explícita à IA para nunca usar "aluno".
  *
  * MUDANÇAS DA v1.2.1 PARA v1.2.2 (PATCH editorial):
  *   - CORREÇÃO: linkedinCaption agora fala em "módulo X do curso Y da Galícia",
- *     não mais "pós-graduação em Y". Active IA é experimentado módulo a módulo.
+ *     não mais "pós-graduação em Y".
  *   - CORREÇÃO: generateLinkedInCard renderiza disciplina sem identificador
  *     interno "— Módulo NN" no badge ao lado do nível.
  *
  * MUDANÇAS DA v1.2.0 PARA v1.2.1 (PATCH):
- *   - CORREÇÃO: checkEarlyTermination blinda Júnior — retorna terminate:false
- *     incondicionalmente quando level === 'junior'.
+ *   - CORREÇÃO: checkEarlyTermination blinda Júnior incondicionalmente.
  *
  * MUDANÇAS DA v1.1.0 PARA v1.2.0:
- *   - NOVO: ActiveIA.export.linkedinCaption — gera texto pronto para LinkedIn
- *   - NOVO: ActiveIA.export.shareLinkedInModal — modal Galícia com preview + texto
- *   - AJUSTADO: linkedinCard com selo conceitual e métricas de processo
- *   - BORDÃO INSTITUCIONAL: "Conhecer para decidir. Decidir para fazer diferença."
+ *   - NOVO: ActiveIA.export.linkedinCaption + shareLinkedInModal.
  *
  * MUDANÇAS DA v1.0.0 PARA v1.1.0:
- *   - NOVO: ActiveIA.modal — sistema de modal Galícia reusável
- *   - NOVO: ActiveIA.consultant — módulo de consultor colegial
- *   - CORREÇÃO: exportSessionPDF usa modal Galícia em vez de alert() nativo
+ *   - NOVO: ActiveIA.modal + ActiveIA.consultant.
  *
  * Uso pelo simulador específico:
  *   <script src="https://.../v1/core.js"></script>
@@ -55,7 +78,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.3';
+  const CORE_VERSION = '1.2.4';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -199,6 +222,12 @@
 
   // ==========================================================================
   // SEÇÃO 4 — CHAMADA À API COM PROMPT CACHING
+  //
+  // A v1.2.4 introduz classificação estruturada de erros. callAPI nunca lança
+  // Error genérico — sempre lança um objeto com .kind, .message, .userMessage
+  // e .recoverable, consumível por ActiveIA.errors.classify() e renderizado
+  // pela UI em mensagens específicas que distinguem rede do estudante, IA
+  // externa indisponível, JSON corrompido e técnico.
   // ==========================================================================
 
   async function callAPI({ systemFixed, systemDynamic, messages, maxTokens }) {
@@ -207,33 +236,214 @@
       { type: 'text', text: systemDynamic || '' }
     ];
 
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: maxTokens || MAX_TOKENS,
-        system: systemArray,
-        messages: messages
-      })
-    });
+    // Verificação rápida de offline antes de tentar fetch
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      _connection.lastError = 'offline';
+      _connection.lastApiOk = null;
+      _notifyConnectionChange();
+      throw _buildError('offline');
+    }
+
+    let response;
+    try {
+      response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens || MAX_TOKENS,
+          system: systemArray,
+          messages: messages
+        })
+      });
+    } catch (networkError) {
+      // fetch rejeitou — sem rede, DNS, CORS, ou Worker totalmente fora
+      _connection.lastError = 'network';
+      _connection.lastApiOk = null;
+      _notifyConnectionChange();
+      throw _buildError('network', networkError.message);
+    }
 
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      throw new Error(`API ${response.status}: ${response.statusText} — ${errBody.substring(0, 200)}`);
+      // 429/500/502/503/504 → IA externa indisponível
+      // 401/403 → técnico (Worker mal configurado)
+      // 400/422 → técnico (payload inválido)
+      let kind;
+      if ([429, 500, 502, 503, 504, 529].includes(response.status)) {
+        kind = 'ai_unavailable';
+      } else if ([401, 403].includes(response.status)) {
+        kind = 'technical';
+      } else {
+        kind = 'technical';
+      }
+      _connection.lastError = kind;
+      _connection.lastApiOk = null;
+      _notifyConnectionChange();
+      throw _buildError(kind, `${response.status} ${response.statusText} — ${errBody.substring(0, 200)}`);
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      _connection.lastError = 'bad_response';
+      _connection.lastApiOk = null;
+      _notifyConnectionChange();
+      throw _buildError('bad_response', 'Resposta HTTP não era JSON válido');
+    }
 
     if (data.usage && data.usage.cache_read_input_tokens > 0) {
       console.log(`[ActiveIA] Cache hit: ${data.usage.cache_read_input_tokens} tokens lidos`);
     }
 
-    const textBlock = data.content.find(c => c.type === 'text');
-    if (!textBlock) throw new Error('Resposta vazia da API');
+    const textBlock = data.content && data.content.find(c => c.type === 'text');
+    if (!textBlock) {
+      _connection.lastError = 'bad_response';
+      _connection.lastApiOk = null;
+      _notifyConnectionChange();
+      throw _buildError('bad_response', 'Resposta da IA veio sem bloco de texto');
+    }
+
+    // Sucesso — limpa estado de erro
+    _connection.lastError = null;
+    _connection.lastApiOk = Date.now();
+    _connection.lastApiLatencyMs = null; // pode ser preenchido se quisermos cronometrar
+    _notifyConnectionChange();
 
     const parsed = parseJSON(textBlock.text);
     return { parsed, rawText: textBlock.text, usage: data.usage };
+  }
+
+  // ==========================================================================
+  // SEÇÃO 4B — CONEXÃO E ERROS (v1.2.4)
+  //
+  // O simulador é um ambiente online em tempo real. O estudante precisa
+  // perceber isso. E quando algo falhar, ele precisa saber:
+  //   (a) se é problema do ambiente dele (sem rede)
+  //   (b) se é o provedor de IA externo (raro, mas acontece)
+  //   (c) se é técnico (raro — recarregar)
+  // A Galícia opera dentro de uma cadeia de dependências externas; isso é
+  // explicitado de forma educada nas mensagens.
+  // ==========================================================================
+
+  const _connection = {
+    lastApiOk: null,        // timestamp da última chamada bem-sucedida
+    lastError: null,        // 'offline' | 'network' | 'ai_unavailable' | 'bad_response' | 'technical' | null
+    listeners: []           // funções para notificar mudanças de estado
+  };
+
+  function _notifyConnectionChange() {
+    _connection.listeners.forEach(fn => {
+      try { fn(getConnectionStatus()); } catch (e) { console.error('[ActiveIA] connection listener error', e); }
+    });
+  }
+
+  function getConnectionStatus() {
+    const isOnline = (typeof navigator !== 'undefined') ? navigator.onLine !== false : true;
+    let state;
+    if (!isOnline) state = 'offline';
+    else if (_connection.lastError) state = 'error';
+    else if (_connection.lastApiOk) state = 'ok';
+    else state = 'idle'; // ainda não fez nenhuma chamada
+    return {
+      state,
+      isOnline,
+      lastApiOk: _connection.lastApiOk,
+      lastError: _connection.lastError
+    };
+  }
+
+  function onConnectionChange(fn) {
+    _connection.listeners.push(fn);
+    return () => {
+      const idx = _connection.listeners.indexOf(fn);
+      if (idx >= 0) _connection.listeners.splice(idx, 1);
+    };
+  }
+
+  // Listeners globais de online/offline do navegador
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => { _notifyConnectionChange(); });
+    window.addEventListener('offline', () => { _notifyConnectionChange(); });
+  }
+
+  // Cada kind de erro tem mensagem específica para o estudante e flag de recuperabilidade
+  const ERROR_MESSAGES = {
+    offline: {
+      title: 'Você está sem conexão',
+      message: 'Verifique sua internet e tente novamente. O Active IA precisa de conexão ativa porque a IA avalia suas decisões em tempo real.',
+      explainer: 'Sua sessão fica salva localmente — quando a conexão voltar, ela retoma exatamente de onde parou.',
+      recoverable: true,
+      cta: 'Tentar novamente'
+    },
+    network: {
+      title: 'Falha de conexão',
+      message: 'Não foi possível alcançar o serviço de IA. Pode ser sua rede, um bloqueio de firewall, ou instabilidade temporária.',
+      explainer: 'Sua sessão fica salva localmente. Tente novamente em alguns segundos — o jogo retoma de onde parou.',
+      recoverable: true,
+      cta: 'Tentar novamente'
+    },
+    ai_unavailable: {
+      title: 'Serviço de IA temporariamente indisponível',
+      message: 'O modelo de inteligência artificial usado pelo Active IA está fora do ar neste momento. Isso é raro, mas acontece.',
+      explainer: 'O Active IA usa modelos de IA de terceiros (Anthropic Claude). Quedas momentâneas dependem da infraestrutura deles, fora do controle da Galícia Educação. Sua sessão fica salva — tente novamente em alguns minutos.',
+      recoverable: true,
+      cta: 'Tentar novamente'
+    },
+    bad_response: {
+      title: 'Resposta inesperada da IA',
+      message: 'A IA respondeu, mas em formato que não conseguimos interpretar. Pode ser flutuação momentânea do modelo.',
+      explainer: 'Sua sessão fica salva. Tentar novamente costuma resolver — o modelo gera uma resposta nova.',
+      recoverable: true,
+      cta: 'Tentar novamente'
+    },
+    technical: {
+      title: 'Problema técnico momentâneo',
+      message: 'Houve um erro técnico ao processar sua solicitação.',
+      explainer: 'Se persistir após tentar novamente, recarregue a página — sua sessão fica salva localmente.',
+      recoverable: true,
+      cta: 'Tentar novamente'
+    }
+  };
+
+  function _buildError(kind, technicalDetail) {
+    const spec = ERROR_MESSAGES[kind] || ERROR_MESSAGES.technical;
+    const err = new Error(`[${kind}] ${spec.title} — ${technicalDetail || ''}`);
+    err.kind = kind;
+    err.userTitle = spec.title;
+    err.userMessage = spec.message;
+    err.userExplainer = spec.explainer;
+    err.recoverable = spec.recoverable;
+    err.cta = spec.cta;
+    err.technicalDetail = technicalDetail || '';
+    return err;
+  }
+
+  function classifyError(error) {
+    // Se já é um erro classificado, retorna ele
+    if (error && error.kind && ERROR_MESSAGES[error.kind]) {
+      return {
+        kind: error.kind,
+        title: error.userTitle,
+        message: error.userMessage,
+        explainer: error.userExplainer,
+        recoverable: error.recoverable,
+        cta: error.cta,
+        technicalDetail: error.technicalDetail
+      };
+    }
+    // Erro desconhecido — classifica como técnico
+    const spec = ERROR_MESSAGES.technical;
+    return {
+      kind: 'technical',
+      title: spec.title,
+      message: spec.message,
+      explainer: spec.explainer,
+      recoverable: spec.recoverable,
+      cta: spec.cta,
+      technicalDetail: error && error.message ? error.message : 'Erro desconhecido'
+    };
   }
 
   // ==========================================================================
@@ -531,18 +741,18 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       const meta = labels[cls] || labels.nao_demonstrado;
       return `<tr>
         <td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:13px;">${c.name}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:11px;font-family:'JetBrains Mono',monospace;color:#475569;">${c.module_ref}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:11px;font-family:'Montserrat',sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;color:#475569;">${c.module_ref}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:11px;"><span style="background:${meta.color}22;color:${meta.color};padding:3px 10px;border-radius:6px;font-weight:600;">${meta.label}</span></td>
         <td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:12px;color:#475569;">${just}</td>
       </tr>`;
     }).join('');
 
     const strengths = (diagnosis.strengths || []).map(s =>
-      `<li style="margin-bottom:10px;font-size:13px;line-height:1.6;"><strong style="color:#0F6E56;font-family:'JetBrains Mono',monospace;font-size:11px;">TURNO ${s.turn}</strong><br>${s.description}</li>`
+      `<li style="margin-bottom:10px;font-size:13px;line-height:1.6;"><strong style="color:#0F6E56;font-family:'Montserrat',sans-serif;font-weight:600;letter-spacing:1.2px;font-size:11px;">TURNO ${s.turn}</strong><br>${s.description}</li>`
     ).join('');
 
     const weaknesses = (diagnosis.weaknesses || []).map(w =>
-      `<li style="margin-bottom:10px;font-size:13px;line-height:1.6;"><strong style="color:#A32D2D;font-family:'JetBrains Mono',monospace;font-size:11px;">TURNO ${w.turn}</strong><br>${w.description}</li>`
+      `<li style="margin-bottom:10px;font-size:13px;line-height:1.6;"><strong style="color:#A32D2D;font-family:'Montserrat',sans-serif;font-weight:600;letter-spacing:1.2px;font-size:11px;">TURNO ${w.turn}</strong><br>${w.description}</li>`
     ).join('');
 
     const indicatorsHTML = config.indicators.map(ind => {
@@ -551,7 +761,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       return `<div style="margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px;">
           <span style="color:#475569;">${ind.name}</span>
-          <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:#0a1628;">${v} / ${ind.max}</span>
+          <span style="font-family:'Montserrat',sans-serif;font-variant-numeric:tabular-nums;font-weight:600;color:#0a1628;">${v} / ${ind.max}</span>
         </div>
         <div style="height:6px;background:#E2E8F0;border-radius:3px;overflow:hidden;">
           <div style="width:${pct}%;height:100%;background:#0074C7;border-radius:3px;"></div>
@@ -574,14 +784,15 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 <head>
 <meta charset="UTF-8">
 <title>Diagnóstico — ${config.name}</title>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=Montserrat:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600&display=swap" rel="stylesheet">
 <style>
   @media print { body { background:#fff !important; } .no-print { display:none !important; } }
-  body { font-family:'Montserrat',sans-serif; background:#FAF7F2; margin:0; padding:32px; color:#0a1628; }
+  body { font-family:'Gotham','Montserrat',system-ui,-apple-system,sans-serif; background:#FAF7F2; margin:0; padding:32px; color:#0a1628; -webkit-font-smoothing:antialiased; }
   .container { max-width:880px; margin:0 auto; background:#fff; border-radius:12px; padding:40px; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
-  h1 { font-family:'Playfair Display',serif; font-weight:600; font-size:28px; margin:0 0 4px; color:#0a1628; }
-  h2 { font-family:'Playfair Display',serif; font-weight:500; font-size:20px; margin:32px 0 12px; color:#0a1628; border-bottom:2px solid #0074C7; padding-bottom:6px; }
-  .meta { font-family:'JetBrains Mono',monospace; font-size:11px; color:#475569; letter-spacing:0.5px; }
+  h1 { font-family:inherit; font-weight:800; font-size:30px; letter-spacing:-0.02em; line-height:1.15; margin:0 0 4px; color:#0a1628; }
+  h1 em { font-style:italic; font-weight:800; color:#0074C7; }
+  h2 { font-family:inherit; font-weight:700; font-size:18px; letter-spacing:-0.01em; margin:32px 0 12px; color:#0a1628; border-bottom:2px solid #0074C7; padding-bottom:6px; }
+  .meta { font-family:inherit; font-weight:600; font-size:11px; color:#475569; letter-spacing:2px; text-transform:uppercase; }
   table { width:100%; border-collapse:collapse; }
   ul { padding-left:0; list-style:none; }
 </style>
@@ -591,7 +802,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
   <div style="border-bottom:1px solid #E2E8F0; padding-bottom:16px; margin-bottom:20px;">
     <div class="meta">DIAGNÓSTICO DE SESSÃO · ACTIVE IA</div>
     <h1>${config.name}</h1>
-    <div style="font-size:13px;color:#475569;margin-top:4px;">Aluno(a): <strong>${state.userName || '—'}</strong> · Nível: ${config.levels[state.level].label} · ${new Date(state.completedAt || Date.now()).toLocaleString('pt-BR')}</div>
+    <div style="font-size:13px;color:#475569;margin-top:4px;">Estudante: <strong>${state.userName || '—'}</strong> · Nível: ${config.levels[state.level].label} · ${new Date(state.completedAt || Date.now()).toLocaleString('pt-BR')}</div>
   </div>
 
   <h2>Indicadores finais</h2>
@@ -657,175 +868,305 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
   // SEÇÃO 12 — CARD LINKEDIN 1080×1080
   // ==========================================================================
 
+  /**
+   * Gera o card LinkedIn 1080×1080 na estética "Dossiê de portfólio" (Mockup 13).
+   *
+   * Linguagem visual:
+   *   - Fundo dark navy com gradiente diagonal sutil (Galícia)
+   *   - Barra-gradiente Galícia no topo (4px)
+   *   - Glow radial cyan no canto superior direito (assinatura v3)
+   *   - Eyebrow + nome do estudante em hierarquia editorial (peso 800, letter-spacing -0.03em)
+   *   - Selo público de sessão único (canto superior direito): "MAI-2026 · K7M9Z"
+   *   - Três métricas-headline em grid 3 colunas (articulação, domínio conceitual, próximo passo)
+   *   - Bordão institucional + data + local
+   *
+   * REGRA DURA DE TIPOGRAFIA (Lição 25): só Montserrat. Gotham não está disponível
+   * em Canvas runtime, então fallback Montserrat é a fonte real. ZERO serif.
+   *
+   * @param {Object} state - appState
+   * @param {Object} diagnosis - estrutura retornada por generateFinalDiagnosis
+   * @param {Object} config - SIMULATOR_CONFIG
+   * @returns {Promise<Blob>} blob image/png 1080×1080
+   */
   async function generateLinkedInCard(state, diagnosis, config) {
     try { await document.fonts.ready; } catch (e) {}
 
+    const W = 1080, H = 1080;
     const canvas = document.createElement('canvas');
-    canvas.width = 1080;
-    canvas.height = 1080;
+    canvas.width = W;
+    canvas.height = H;
     const ctx = canvas.getContext('2d');
 
-    // ====== Fundo Galícia ======
-    ctx.fillStyle = '#FAF7F2';
-    ctx.fillRect(0, 0, 1080, 1080);
+    // ====== FUNDO: dark navy com gradiente diagonal sutil ======
+    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+    bgGrad.addColorStop(0, '#0a1628');
+    bgGrad.addColorStop(1, '#102540');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
 
-    // Faixa decorativa superior (gradiente Galícia)
-    const grad = ctx.createLinearGradient(0, 0, 1080, 0);
-    grad.addColorStop(0, '#0074C7');
-    grad.addColorStop(0.5, '#00BDFF');
-    grad.addColorStop(1, '#91F2FF');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 1080, 8);
+    // ====== BARRA-GRADIENTE GALÍCIA NO TOPO (assinatura) ======
+    const topBar = ctx.createLinearGradient(0, 0, W, 0);
+    topBar.addColorStop(0, '#0074C7');
+    topBar.addColorStop(0.5, '#00BDFF');
+    topBar.addColorStop(1, '#91F2FF');
+    ctx.fillStyle = topBar;
+    ctx.fillRect(0, 0, W, 6);
 
-    // ====== HEADER ======
-    ctx.fillStyle = '#0074C7';
-    ctx.font = '600 22px "JetBrains Mono", monospace';
-    ctx.fillText('ACTIVE IA · GALÍCIA EDUCAÇÃO', 80, 80);
+    // ====== GLOW RADIAL CYAN (canto superior direito) ======
+    const glow = ctx.createRadialGradient(W + 50, -50, 0, W + 50, -50, 520);
+    glow.addColorStop(0, 'rgba(0,189,255,0.20)');
+    glow.addColorStop(0.6, 'rgba(0,189,255,0.04)');
+    glow.addColorStop(1, 'rgba(0,189,255,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
 
-    // Linha divisória
-    ctx.strokeStyle = '#E2E8F0';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(80, 110); ctx.lineTo(1000, 110); ctx.stroke();
+    // ====== EYEBROW (com tracinho) ======
+    const padL = 80, padR = 80;
+    const eyeY = 110;
+    // Tracinho
+    ctx.fillStyle = '#91F2FF';
+    ctx.fillRect(padL, eyeY - 1, 36, 2);
+    // Texto
+    ctx.fillStyle = '#91F2FF';
+    ctx.font = '600 14px "Montserrat", sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    // Letter-spacing manual: percorre char por char
+    _drawTrackedText(ctx, 'ACTIVE IA · GALÍCIA EDUCAÇÃO', padL + 56, eyeY + 5, 2.5);
 
-    // ====== NOME DO ALUNO ======
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '500 56px "Playfair Display", Georgia, serif';
-    const userName = state.userName || 'Aluno(a)';
-    ctx.fillText(userName, 80, 200);
-
-    ctx.fillStyle = '#475569';
-    ctx.font = '400 22px "Montserrat", sans-serif';
-    ctx.fillText('concluiu a simulação profissional', 80, 240);
-
-    // ====== NOME DO SIMULADOR (até 2 linhas) ======
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '600 34px "Playfair Display", Georgia, serif';
-    const simName = config.name;
-    const titleLines = wrapText(ctx, simName, 920).slice(0, 2);
-    let y = 300;
-    for (const ln of titleLines) {
-      ctx.fillText(ln, 80, y);
-      y += 44;
-    }
-    const titleEndY = y + 4;
-
-    // ====== BADGE DE NÍVEL + MÓDULO ======
-    const levelLabel = config.levels[state.level].label.toUpperCase();
-    const badgeY = titleEndY + 18;
-    ctx.fillStyle = '#0074C7';
-    ctx.fillRect(80, badgeY, 220, 50);
-    ctx.fillStyle = '#FAF7F2';
-    ctx.font = '600 20px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`NÍVEL ${levelLabel}`, 190, badgeY + 32);
-    ctx.textAlign = 'left';
-
-    // Disciplina/curso (ao lado do badge, sem identificador interno tipo "— Módulo 01")
-    if (config.module) {
-      const moduleDiscipline = config.module.replace(/—.*$/, '').trim();
-      ctx.fillStyle = '#475569';
-      ctx.font = '400 16px "JetBrains Mono", monospace';
-      ctx.fillText(moduleDiscipline.toUpperCase(), 320, badgeY + 32);
-    }
-
-    // ====== HEADLINE METRIC ======
-    const blockY = badgeY + 100;
-    const headline = (diagnosis && diagnosis.headline_metric) || '';
-    ctx.fillStyle = '#0074C7';
-    ctx.font = '600 28px "Montserrat", sans-serif';
-    if (headline) {
-      const lines = wrapText(ctx, headline, 920).slice(0, 2);
-      let hy = blockY;
-      for (const ln of lines) {
-        ctx.fillText(ln, 80, hy);
-        hy += 38;
-      }
-    }
-
-    // ====== MÉTRICAS DE PROCESSO ======
-    // Mostra que houve trabalho: turnos de decisão + consultas profissionais
-    const metricsY = blockY + 90;
-    const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
-    const consultantsUsed = state.consultantsUsed || 0;
-
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '500 16px "JetBrains Mono", monospace';
-    ctx.fillText('PROCESSO', 80, metricsY);
-
-    ctx.font = '400 20px "Montserrat", sans-serif';
-    ctx.fillStyle = '#475569';
-    let mtX = 80;
-    const metric1 = `${turnsPlayed} turnos de decisão sob pressão`;
-    ctx.fillText('▸ ' + metric1, mtX, metricsY + 32);
-
-    if (consultantsUsed > 0) {
-      const metric2 = `${consultantsUsed} consulta${consultantsUsed > 1 ? 's' : ''} profissional${consultantsUsed > 1 ? 'is' : ''} simulada${consultantsUsed > 1 ? 's' : ''}`;
-      ctx.fillText('▸ ' + metric2, mtX, metricsY + 60);
-    }
-
-    const metric3 = `Caso real do mercado · sem múltipla escolha · sem gabarito`;
-    ctx.fillText('▸ ' + metric3, mtX, metricsY + (consultantsUsed > 0 ? 88 : 60));
-
-    // ====== COMPETÊNCIAS ======
-    const compY = metricsY + (consultantsUsed > 0 ? 140 : 112);
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '500 16px "JetBrains Mono", monospace';
-    ctx.fillText('COMPETÊNCIAS DEMONSTRADAS', 80, compY);
-
-    ctx.font = '400 19px "Montserrat", sans-serif';
-    ctx.fillStyle = '#0a1628';
-    const strengths = (diagnosis && diagnosis.strengths) || [];
-    const items = strengths.slice(0, 3).map(s => (s.description || '').substring(0, 100));
-    let cy = compY + 30;
-    for (const it of items) {
-      const lines = wrapText(ctx, '• ' + it, 920);
-      for (const ln of lines.slice(0, 2)) {
-        ctx.fillText(ln, 80, cy);
-        cy += 26;
-      }
-      cy += 4;
-    }
-
-    // ====== BORDÃO INSTITUCIONAL (selo conceitual) ======
-    // Posição fixa próxima ao rodapé, em destaque
-    const bordaoY = 930;
-
-    // Caixa de fundo sutil
-    ctx.fillStyle = '#E8F4FF';
-    ctx.fillRect(80, bordaoY - 28, 920, 56);
-
-    // Linha lateral de destaque
-    ctx.fillStyle = '#0074C7';
-    ctx.fillRect(80, bordaoY - 28, 4, 56);
-
-    ctx.fillStyle = '#0a1628';
-    ctx.font = 'italic 600 22px "Playfair Display", Georgia, serif';
-    ctx.fillText('"Conhecer para decidir. Decidir para fazer diferença."', 104, bordaoY + 6);
-
-    // ====== RODAPÉ REFORÇADO ======
-    // Linha "MÉTODO ACTIVE IA"
-    ctx.fillStyle = '#0074C7';
-    ctx.font = '600 14px "JetBrains Mono", monospace';
-    ctx.fillText('MÉTODO ACTIVE IA', 80, 1010);
-
-    // Descrição curta da metodologia
-    ctx.fillStyle = '#475569';
-    ctx.font = '400 14px "Montserrat", sans-serif';
-    ctx.fillText('Simulação profissional avaliada por IA em tempo real · Galícia Educação', 80, 1034);
-
-    // Data (canto direito)
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '400 13px "JetBrains Mono", monospace';
-    const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+    // ====== SELO PÚBLICO DE SESSÃO (canto superior direito) ======
+    const sessionId = getPublicSessionId(state);
+    ctx.fillStyle = 'rgba(145,242,255,0.55)';
+    ctx.font = '600 12px "Montserrat", sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(dateStr.toUpperCase(), 1000, 1034);
+    _drawTrackedText(ctx, 'SESSÃO', W - padR, eyeY - 12, 2);
+    ctx.fillStyle = '#91F2FF';
+    ctx.font = '600 16px "Montserrat", sans-serif';
+    ctx.fillText(sessionId, W - padR, eyeY + 12);
     ctx.textAlign = 'left';
 
-    // Faixa inferior (gradiente Galícia)
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 1072, 1080, 8);
+    // ====== EYEBROW DOSSIÊ ======
+    const dossieEyeY = 200;
+    ctx.fillStyle = '#91F2FF';
+    ctx.font = '600 13px "Montserrat", sans-serif';
+    _drawTrackedText(ctx, 'DOSSIÊ DE SESSÃO', padL, dossieEyeY, 2.5);
+
+    // ====== NOME DO ESTUDANTE (peça monumental) ======
+    // Montserrat ExtraBold 80px, letter-spacing -0.03em simulado, primeiro nome em branco,
+    // sobrenome em itálico cyan
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 80px "Montserrat", sans-serif';
+    const userName = (state.userName || 'Estudante').trim();
+    const nameParts = userName.split(/\s+/);
+    const firstName = nameParts[0] || userName;
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+    const nameY = 270;
+    // Primeiro nome
+    ctx.fillText(firstName, padL, nameY);
+    const firstNameW = ctx.measureText(firstName).width;
+
+    // Sobrenome em itálico cyan (se houver)
+    if (lastName) {
+      // Quebra linha se necessário (sobrenomes longos)
+      const totalW = firstNameW + ctx.measureText(' ' + lastName).width;
+      if (totalW < W - padL - padR) {
+        ctx.fillStyle = '#00BDFF';
+        ctx.font = 'italic 800 80px "Montserrat", sans-serif';
+        ctx.fillText(' ' + lastName, padL + firstNameW, nameY);
+      } else {
+        // Sobrenome na linha de baixo
+        ctx.fillStyle = '#00BDFF';
+        ctx.font = 'italic 800 80px "Montserrat", sans-serif';
+        ctx.fillText(lastName, padL, nameY + 86);
+      }
+    }
+    const nameEndY = (lastName && (firstNameW + ctx.measureText(' ' + lastName).width >= W - padL - padR)) ? nameY + 86 : nameY;
+
+    // ====== DESCRIÇÃO DA SESSÃO ======
+    const descY = nameEndY + 56;
+    ctx.fillStyle = 'rgba(255,255,255,0.72)';
+    ctx.font = '400 19px "Montserrat", sans-serif';
+    const moduleDiscipline = (config.module || '').replace(/—.*$/, '').trim();
+    const moduleTopic = (config.name || '').split(':')[0].trim();
+    const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
+    const levelLabel = config.levels[state.level].label;
+    const descText = `Concluiu a simulação "${moduleTopic}" no nível ${levelLabel} · ${turnsPlayed} turnos · módulo de ${moduleDiscipline}.`;
+    const descLines = wrapText(ctx, descText, W - padL - padR).slice(0, 3);
+    let dy = descY;
+    for (const ln of descLines) {
+      ctx.fillText(ln, padL, dy);
+      dy += 30;
+    }
+
+    // ====== GRID 3 MÉTRICAS-HEADLINE ======
+    const gridY = dy + 36;
+    const gridH = 168;
+    const gapBetween = 1;
+    const cellW = Math.floor((W - padL - padR - 2 * gapBetween) / 3);
+
+    // Borda externa sutil + fundo das células com tint cyan
+    const cellBg = 'rgba(10,22,40,0.55)';
+    const borderColor = 'rgba(145,242,255,0.22)';
+
+    // Calcula métricas
+    const articulationDone = (state.articulationHistory || []).filter(a => a === 'articulada').length;
+    const articulationTotal = (state.articulationHistory || []).length || turnsPlayed;
+    const conceptsTotal = (config.concepts || []).length;
+    const conceptsMastered = diagnosis && diagnosis.concept_map
+      ? Object.values(diagnosis.concept_map).filter(s => s === 'dominado').length
+      : 0;
+    const nextAction = diagnosis && diagnosis.next_step_recommendation
+      ? _nextStepLabel(diagnosis.next_step_recommendation.action, config, state.level)
+      : '—';
+
+    const metrics = [
+      {
+        eyebrow: 'ARTICULAÇÃO',
+        value: `${articulationDone} de ${articulationTotal}`,
+        sub: 'turnos com articulação completa'
+      },
+      {
+        eyebrow: 'DOMÍNIO CONCEITUAL',
+        value: `${conceptsMastered} de ${conceptsTotal}`,
+        sub: 'conceitos do módulo dominados'
+      },
+      {
+        eyebrow: 'PRÓXIMO PASSO',
+        value: nextAction,
+        sub: 'recomendação Active IA'
+      }
+    ];
+
+    // Desenha as 3 células
+    for (let i = 0; i < 3; i++) {
+      const cx = padL + i * (cellW + gapBetween);
+      // fundo
+      ctx.fillStyle = cellBg;
+      ctx.fillRect(cx, gridY, cellW, gridH);
+      // borda
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx + 0.5, gridY + 0.5, cellW - 1, gridH - 1);
+
+      const m = metrics[i];
+      // eyebrow
+      ctx.fillStyle = '#91F2FF';
+      ctx.font = '600 11px "Montserrat", sans-serif';
+      _drawTrackedText(ctx, m.eyebrow, cx + 24, gridY + 30, 1.8);
+      // value
+      ctx.fillStyle = '#FFFFFF';
+      // Se for "Próximo passo" (texto), usa fonte menor; se for número, fonte grande
+      const isNumeric = /^\d/.test(m.value);
+      if (isNumeric) {
+        ctx.font = '800 38px "Montserrat", sans-serif';
+      } else {
+        ctx.font = '700 19px "Montserrat", sans-serif';
+      }
+      const valueLines = isNumeric ? [m.value] : wrapText(ctx, m.value, cellW - 48).slice(0, 2);
+      let vy = isNumeric ? gridY + 82 : gridY + 70;
+      for (const ln of valueLines) {
+        ctx.fillText(ln, cx + 24, vy);
+        vy += isNumeric ? 40 : 24;
+      }
+      // sub
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.font = '400 12px "Montserrat", sans-serif';
+      const subLines = wrapText(ctx, m.sub, cellW - 48).slice(0, 2);
+      let sy = gridY + gridH - 32;
+      if (subLines.length === 2) sy -= 14;
+      for (const ln of subLines) {
+        ctx.fillText(ln, cx + 24, sy);
+        sy += 16;
+      }
+    }
+
+    // ====== BORDÃO INSTITUCIONAL (centro-baixo) ======
+    const bordaoY = gridY + gridH + 80;
+    ctx.fillStyle = 'rgba(145,242,255,0.18)';
+    ctx.fillRect(padL, bordaoY - 36, 4, 72);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '500 22px "Montserrat", sans-serif';
+    ctx.fillText('Conhecer para decidir.', padL + 24, bordaoY - 4);
+    ctx.fillStyle = '#91F2FF';
+    ctx.font = '600 22px "Montserrat", sans-serif';
+    ctx.fillText('Decidir para fazer diferença.', padL + 24, bordaoY + 28);
+
+    // ====== RODAPÉ ======
+    // Linha sutil acima do rodapé
+    ctx.strokeStyle = 'rgba(145,242,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, H - 90);
+    ctx.lineTo(W - padR, H - 90);
+    ctx.stroke();
+
+    // Data + local (esquerda)
+    ctx.fillStyle = 'rgba(145,242,255,0.55)';
+    ctx.font = '500 12px "Montserrat", sans-serif';
+    const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    ctx.fillText(dateStr, padL, H - 60);
+
+    // Método (direita)
+    ctx.fillStyle = '#91F2FF';
+    ctx.font = '600 12px "Montserrat", sans-serif';
+    ctx.textAlign = 'right';
+    _drawTrackedText(ctx, 'MÉTODO ACTIVE IA', W - padR, H - 60, 2.5);
+    ctx.textAlign = 'left';
+
+    // Subtítulo rodapé
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.font = '400 11.5px "Montserrat", sans-serif';
+    ctx.fillText('Simulação profissional avaliada por IA em tempo real', padL, H - 38);
+
+    // Barra gradiente Galícia no rodapé (espelha o topo)
+    ctx.fillStyle = topBar;
+    ctx.fillRect(0, H - 6, W, 6);
 
     return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }
+
+  /**
+   * Desenha texto com letter-spacing simulado (Canvas não suporta letter-spacing nativo).
+   * Percorre cada caractere e o posiciona manualmente com offset.
+   */
+  function _drawTrackedText(ctx, text, x, y, trackingPx) {
+    const align = ctx.textAlign;
+    if (align === 'right') {
+      // Calcula largura total primeiro
+      let totalW = 0;
+      for (let i = 0; i < text.length; i++) totalW += ctx.measureText(text[i]).width + (i < text.length - 1 ? trackingPx : 0);
+      let cx = x - totalW;
+      ctx.textAlign = 'left';
+      for (let i = 0; i < text.length; i++) {
+        ctx.fillText(text[i], cx, y);
+        cx += ctx.measureText(text[i]).width + trackingPx;
+      }
+      ctx.textAlign = 'right';
+    } else {
+      let cx = x;
+      for (let i = 0; i < text.length; i++) {
+        ctx.fillText(text[i], cx, y);
+        cx += ctx.measureText(text[i]).width + trackingPx;
+      }
+    }
+  }
+
+  function _nextStepLabel(action, config, currentLevel) {
+    const levels = { junior: 'Júnior', pleno: 'Pleno', senior: 'Sênior' };
+    const order = ['junior', 'pleno', 'senior'];
+    const idx = order.indexOf(currentLevel);
+    switch (action) {
+      case 'subir_nivel':
+        return idx < 2 ? `Avançar para ${levels[order[idx + 1]]}` : 'Manter Sênior';
+      case 'repetir_nivel':
+        return `Repetir ${levels[currentLevel] || ''}`.trim();
+      case 'voltar_nivel':
+        return idx > 0 ? `Revisar em ${levels[order[idx - 1]]}` : 'Revisar fundamentos';
+      case 'revisar_modulo':
+        return 'Revisar o módulo';
+      default:
+        return action || '—';
+    }
   }
 
   function wrapText(ctx, text, maxWidth) {
@@ -1037,10 +1378,10 @@ ${hashtags}`;
       <div style="display:grid; grid-template-columns: 180px 1fr; gap: 16px; align-items:start;">
         <div>
           <img src="${cardUrl}" alt="Card Active IA" style="width:100%; border-radius:10px; border:1px solid var(--gal-border, #E2E8F0); display:block;" />
-          <div style="font-size:11px; color:var(--gal-text-2, #475569); margin-top:6px; text-align:center; font-family:'JetBrains Mono', monospace;">IMAGEM 1080×1080</div>
+          <div style="font-size:11px; color:var(--gal-text-2, #475569); margin-top:6px; text-align:center; font-family:'Montserrat',sans-serif; font-weight:600;">IMAGEM 1080×1080</div>
         </div>
         <div>
-          <div style="font-family:'JetBrains Mono', monospace; font-size:10px; letter-spacing:0.1em; color:var(--gal-azul-escuro, #0074C7); font-weight:600; margin-bottom:6px;">TEXTO SUGERIDO</div>
+          <div style="font-family:'Montserrat',sans-serif; font-weight:600; font-size:10px; letter-spacing:0.1em; color:var(--gal-azul-escuro, #0074C7); font-weight:600; margin-bottom:6px;">TEXTO SUGERIDO</div>
           <textarea id="activeia-share-caption" class="activeia-modal-input" style="min-height:280px; font-size:13.5px; line-height:1.6;">${escapeHTML(caption)}</textarea>
           <p style="font-size:11.5px; color:var(--gal-text-2, #475569); margin-top:6px;">Você pode editar o texto antes de postar. As hashtags ajudam o alcance da publicação.</p>
         </div>
@@ -1151,15 +1492,135 @@ ${hashtags}`;
   }
 
   function showError(msg) {
-    const box = document.getElementById('errorBox');
+    const box = document.getElementById('errorBox') || document.getElementById('error-box');
     const textEl = document.getElementById('errorMsg');
     if (textEl) textEl.textContent = msg;
     if (box) box.classList.add('active');
   }
 
   function hideError() {
-    const box = document.getElementById('errorBox');
+    const box = document.getElementById('errorBox') || document.getElementById('error-box');
     if (box) box.classList.remove('active');
+  }
+
+  /**
+   * Mostra um modal Galícia diagnóstico para uma exceção classificada.
+   * Distingue 5 cenários (offline, network, ai_unavailable, bad_response, technical)
+   * e renderiza título + mensagem + explainer + botão Tentar novamente.
+   *
+   * @param {Error} error - erro (idealmente já classificado por _buildError)
+   * @param {Function} [onRetry] - callback executado quando o estudante clica Tentar novamente
+   */
+  function showErrorFromException(error, onRetry) {
+    const classified = classifyError(error);
+    console.error('[ActiveIA] erro classificado:', classified.kind, classified.technicalDetail);
+
+    const explainerHTML = classified.explainer
+      ? `<p style="margin:14px 0 0; font-size:12.5px; color:rgba(71,85,105,0.85); line-height:1.55; padding-top:14px; border-top:1px solid #E2E8F0;"><em style="font-style:normal; color:#94a3b8; font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:10px; display:block; margin-bottom:6px;">Por que isso aconteceu</em>${escapeHTML(classified.explainer)}</p>`
+      : '';
+
+    const technicalHTML = classified.technicalDetail
+      ? `<details style="margin-top:14px;"><summary style="font-size:11px; color:#94a3b8; cursor:pointer; user-select:none;">Detalhes técnicos</summary><pre style="margin:8px 0 0; font-family:ui-monospace, 'SF Mono', Consolas, Menlo, monospace; font-size:11px; color:#64748b; background:#F5F1EA; padding:10px 12px; border-radius:6px; white-space:pre-wrap; word-break:break-all;">${escapeHTML(classified.technicalDetail)}</pre></details>`
+      : '';
+
+    const bodyHTML = `
+      <p style="margin:0; font-size:14px; color:#0a1628; line-height:1.6;">${escapeHTML(classified.message)}</p>
+      ${explainerHTML}
+      ${technicalHTML}
+    `;
+
+    const actions = [];
+    if (classified.recoverable && typeof onRetry === 'function') {
+      actions.push({
+        label: classified.cta || 'Tentar novamente',
+        primary: true,
+        close: true,
+        onClick: onRetry
+      });
+    } else {
+      actions.push({ label: 'Entendi', primary: true, close: true });
+    }
+
+    showModal({
+      eyebrow: 'Conexão',
+      title: classified.title,
+      body: bodyHTML,
+      bodyIsHTML: true,
+      allowEscClose: false,
+      actions
+    });
+  }
+
+  /**
+   * Injeta um indicador permanente de status de conexão num elemento alvo.
+   * Comunica em tempo real ao estudante que ele está num ambiente online,
+   * conectado a serviços externos. Estados: ok (verde), idle (cinza),
+   * error/offline (vermelho).
+   *
+   * @param {HTMLElement|string} target - elemento ou seletor onde montar
+   * @param {Object} [opts] - { showLabel: boolean (default true) }
+   * @returns {Function} função de cleanup que remove o badge e o listener
+   */
+  function mountConnectionBadge(target, opts) {
+    const el = typeof target === 'string' ? document.querySelector(target) : target;
+    if (!el) return () => {};
+    const showLabel = !opts || opts.showLabel !== false;
+
+    el.innerHTML = `
+      <span class="aiaq-conn-dot" style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#94a3b8; transition:background 0.3s ease, box-shadow 0.3s ease;"></span>
+      ${showLabel ? '<span class="aiaq-conn-label" style="font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:1.4px; color:rgba(255,255,255,0.65); transition:color 0.3s ease;">Conectando</span>' : ''}
+    `;
+    el.style.display = 'inline-flex';
+    el.style.alignItems = 'center';
+    el.style.gap = '8px';
+
+    const dot = el.querySelector('.aiaq-conn-dot');
+    const label = el.querySelector('.aiaq-conn-label');
+
+    function render(status) {
+      let dotColor, glow, text;
+      switch (status.state) {
+        case 'ok':
+          dotColor = '#1D9E75';
+          glow = '0 0 6px rgba(29,158,117,0.65)';
+          text = `Conectado · ${MODEL}`;
+          break;
+        case 'error':
+          dotColor = '#E0635A';
+          glow = '0 0 6px rgba(224,99,90,0.55)';
+          if (status.lastError === 'offline') text = 'Sem internet';
+          else if (status.lastError === 'ai_unavailable') text = 'IA indisponível';
+          else if (status.lastError === 'network') text = 'Falha de rede';
+          else text = 'Erro de conexão';
+          break;
+        case 'offline':
+          dotColor = '#E0635A';
+          glow = '0 0 6px rgba(224,99,90,0.55)';
+          text = 'Sem internet';
+          break;
+        default:
+          dotColor = '#94a3b8';
+          glow = 'none';
+          text = 'Conectando';
+      }
+      if (dot) {
+        dot.style.background = dotColor;
+        dot.style.boxShadow = glow;
+      }
+      if (label) {
+        label.textContent = text;
+      }
+    }
+
+    // Render inicial
+    render(getConnectionStatus());
+    // Subscrição
+    const unsubscribe = onConnectionChange(render);
+
+    return () => {
+      unsubscribe();
+      el.innerHTML = '';
+    };
   }
 
   // ==========================================================================
@@ -1217,6 +1678,40 @@ ${hashtags}`;
 
   function clearSession(simulatorId) {
     storageRemove(`${simulatorId}_session`);
+  }
+
+  /**
+   * Gera um selo público de sessão para uso visual no dossiê e no card LinkedIn.
+   * Formato: "MAI-2026 · K7M9Z" — mês-ano + hash curto (5 chars, base32) derivado
+   * de startedAt + userName. Não é segredo, não é seguro, não é único globalmente;
+   * é apenas uma marca visual estável que dá sensação de "número de matrícula"
+   * pra peça publicável.
+   *
+   * @param {Object} state - appState com startedAt e userName
+   * @returns {string} ex: "MAI-2026 · K7M9Z"
+   */
+  function getPublicSessionId(state) {
+    if (!state || !state.startedAt) return '—';
+    const date = new Date(state.startedAt);
+    const months = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+    const monthLabel = `${months[date.getMonth()]}-${date.getFullYear()}`;
+
+    // Hash curto baseado em startedAt + userName (estável, mas opaco)
+    const seed = `${state.startedAt}|${state.userName || 'anon'}`;
+    let h = 5381;
+    for (let i = 0; i < seed.length; i++) {
+      h = ((h << 5) + h) ^ seed.charCodeAt(i);
+      h = h >>> 0; // força unsigned 32 bits
+    }
+    // Converte pra base32 (Crockford-ish: sem 0/O/1/I/L pra não confundir leitor)
+    const alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    let hash = '';
+    let n = h;
+    for (let i = 0; i < 5; i++) {
+      hash = alphabet[n % alphabet.length] + hash;
+      n = Math.floor(n / alphabet.length);
+    }
+    return `${monthLabel} · ${hash}`;
   }
 
   // ==========================================================================
@@ -1278,7 +1773,7 @@ ${hashtags}`;
   background: linear-gradient(180deg, var(--gal-card-tint, #E8F4FF), var(--gal-card, #FFFFFF));
 }
 .activeia-modal-eyebrow {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Gotham', 'Montserrat', sans-serif;
   font-size: 10px;
   letter-spacing: 0.12em;
   color: var(--gal-azul-escuro, #0074C7);
@@ -1286,9 +1781,10 @@ ${hashtags}`;
   text-transform: uppercase;
 }
 .activeia-modal-title {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 20px;
-  font-weight: 600;
+  font-family: 'Gotham', 'Montserrat', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
   color: var(--gal-text, #0a1628);
   margin: 4px 0 2px;
 }
@@ -1355,7 +1851,7 @@ ${hashtags}`;
   border-left: 3px solid var(--gal-azul-medio, #00BDFF);
 }
 .activeia-modal-question-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Gotham', 'Montserrat', sans-serif;
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--gal-azul-escuro, #0074C7);
@@ -1752,9 +2248,23 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
       shareLinkedIn: shareToLinkedIn,
       buildDashboardHTML: buildDashboardHTML
     },
-    ui: { showLoading, hideLoading, showError, hideError },
+    ui: {
+      showLoading,
+      hideLoading,
+      showError,
+      hideError,
+      showErrorFromException,
+      mountConnectionBadge
+    },
+    connection: {
+      status: getConnectionStatus,
+      onChange: onConnectionChange
+    },
+    errors: {
+      classify: classifyError
+    },
     daily: { isBlocked: isDailyBlocked, markComplete: markDayComplete, getTimer: getDailyTimer },
-    session: { save: saveSession, load: loadSession, clear: clearSession },
+    session: { save: saveSession, load: loadSession, clear: clearSession, publicId: getPublicSessionId },
     modal: {
       show: showModal,
       close: closeModal,
