@@ -1,46 +1,39 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.4
+ * ACTIVE IA — CORE v1.2.5
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
  *
+ * MUDANÇAS DA v1.2.4 PARA v1.2.5 (PATCH crítico de produto):
+ *   - CORREÇÃO ESTRATÉGICA: stack do provedor de IA NUNCA mais é exposto ao
+ *     estudante. O badge de conexão mostrava "Conectado · claude-sonnet-4-6";
+ *     agora mostra apenas "IA conectada". O modal de erro ai_unavailable
+ *     mencionava "Anthropic Claude"; agora generaliza "serviços de IA em
+ *     tempo real". Active IA é apresentado como produto Galícia próprio.
+ *   - MENSAGENS DE LOADING: reescritas para reforçar sensação de consulta
+ *     em tempo real sem nomear provedor:
+ *       • "Preparando o caso..." → "Carregando o caso · IA conectando..."
+ *       • "A cena avança..." → "Aguardando resposta da IA..."
+ *       • "Produzindo o diagnóstico final..." → "Consultando IA para
+ *          produzir o diagnóstico..."
+ *   - CORREÇÃO PEDAGÓGICA: Regra de Proporcionalidade ganha PARTE 4 sobre
+ *     indicadores de RISCO (initial != 0). Eles têm semântica diferente
+ *     dos indicadores de desempenho: só sobem com decisões protetivas,
+ *     descem com decisões arriscadas, permanecem iguais quando o estudante
+ *     não decide nada relevante ao risco. Corrige bug onde "Segurança do
+ *     Paciente" subia com respostas genéricas no simulador cerebrovascular.
+ *     Ver Lições 28 e 29.
+ *
  * MUDANÇAS DA v1.2.3 PARA v1.2.4 (FEAT + editorial):
- *   - NOVO: ActiveIA.connection — módulo de status de conexão em tempo real.
- *     getConnectionStatus() retorna {state, isOnline, lastApiOk, lastError}.
- *     onConnectionChange(fn) registra callback. Listeners globais de online/
- *     offline já configurados. Comunica ao estudante que o ambiente é online.
- *   - NOVO: ActiveIA.errors — classificação de erros em 5 kinds (offline,
- *     network, ai_unavailable, bad_response, technical). Cada um com título,
- *     mensagem, explainer e CTA específicos. Mensagens distinguem rede do
- *     estudante, IA externa indisponível, formato inesperado, técnico.
- *     Explainer de IA externa explicita que a Anthropic está fora do
- *     controle direto da Galícia (eximir responsabilidade).
- *   - NOVO: ActiveIA.ui.showErrorFromException(error, onRetry) — modal Galícia
- *     diagnóstico que substitui o error-box genérico. Inclui detalhes técnicos
- *     em <details> colapsável.
- *   - NOVO: ActiveIA.ui.mountConnectionBadge(target) — injeta indicador
- *     permanente de status (dot verde/cinza/vermelho + label) na topbar.
- *     Atualiza em tempo real conforme chamadas API têm sucesso/falha.
- *   - NOVO: ActiveIA.session.publicId(state) — gera selo público formato
- *     "MAI-2026 · K7M9Z" para uso no dossiê e card LinkedIn. Hash estável
- *     baseado em startedAt + userName.
- *   - REDESIGN: generateLinkedInCard reescrito na estética "Dossiê de portfólio"
- *     (Mockup 13 do catálogo). Dark navy, gradiente Galícia, glow cyan,
- *     selo público no header, nome do estudante em 80px com sobrenome em
- *     itálico cyan, grid 3 métricas-headline (articulação/domínio/próximo
- *     passo), bordão institucional, rodapé com data e método.
- *   - TIPOGRAFIA (Lição 25): banido Playfair Display, Georgia, JetBrains Mono
- *     e qualquer fonte com serifa do core inteiro. Toda tipografia agora usa
- *     Gotham (com fallback Montserrat) no DOM e Montserrat puro no Canvas
- *     (que não tem acesso a Gotham em runtime). Hierarquia editorial
- *     construída via peso, tamanho, letter-spacing e itálico — não troca
- *     de família. ZERO serif no core.
- *   - callAPI agora lança erros classificados (com .kind, .userMessage,
- *     .recoverable) em vez de Error genérico. Consumidores devem usar
- *     ActiveIA.ui.showErrorFromException em vez de showError(string).
+ *   - NOVO: ActiveIA.connection — módulo de status em tempo real.
+ *   - NOVO: ActiveIA.errors — 5 kinds de erro com mensagens próprias.
+ *   - NOVO: ActiveIA.ui.showErrorFromException + mountConnectionBadge.
+ *   - NOVO: ActiveIA.session.publicId — selo "MAI-2026 · K7M9Z".
+ *   - REDESIGN: generateLinkedInCard reescrito (Mockup 13).
+ *   - TIPOGRAFIA: banido Playfair/Georgia/JetBrains Mono. Só Gotham/Montserrat.
  *
  * MUDANÇAS DA v1.2.2 PARA v1.2.3 (PATCH editorial):
  *   - VOCABULÁRIO: substituído "aluno/alunos/aluna" por "estudante" em TODOS
@@ -78,7 +71,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.4';
+  const CORE_VERSION = '1.2.5';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -386,8 +379,8 @@
     },
     ai_unavailable: {
       title: 'Serviço de IA temporariamente indisponível',
-      message: 'O modelo de inteligência artificial usado pelo Active IA está fora do ar neste momento. Isso é raro, mas acontece.',
-      explainer: 'O Active IA usa modelos de IA de terceiros (Anthropic Claude). Quedas momentâneas dependem da infraestrutura deles, fora do controle da Galícia Educação. Sua sessão fica salva — tente novamente em alguns minutos.',
+      message: 'A inteligência artificial que avalia suas decisões está fora do ar neste momento. Isso é raro, mas acontece.',
+      explainer: 'O Active IA depende de serviços de inteligência artificial em tempo real para avaliar suas respostas. Quedas momentâneas desses serviços externos estão fora do controle direto da Galícia Educação. Sua sessão fica salva — tente novamente em alguns minutos.',
       recoverable: true,
       cta: 'Tentar novamente'
     },
@@ -558,6 +551,28 @@ EXEMPLOS DE FRASES PROIBIDAS:
 PARTE 3 — PEDAGOGIA DA ESPECIFICIDADE
 
 A IA NUNCA completa pelo estudante. Se o estudante omitiu eixo importante, esse eixo permanece omitido até o estudante EXPLICITAMENTE mobilizá-lo. A IA não infere boa intenção e não preenche lacunas. O estudante articula ou não articula. O simulador é diagnóstico, não compensatório.
+
+PARTE 4 — INDICADORES DE RISCO TÊM SEMÂNTICA DIFERENTE
+
+Alguns indicadores do simulador são INDICADORES DE RISCO, não de desempenho. São identificáveis porque começam com valor INICIAL DIFERENTE DE ZERO (geralmente 50). Exemplos comuns: "Segurança do Paciente", "Segurança do Cliente", "Risco Reputacional", "Risco Operacional", "Risco Legal", "Integridade da Decisão".
+
+REGRA DOS INDICADORES DE RISCO (precedência sobre a tabela acima):
+
+| Situação do turno                                              | O que acontece com o indicador de risco                            |
+|----------------------------------------------------------------|--------------------------------------------------------------------|
+| Resposta GENÉRICA que não decide nada perigoso                 | Permanece IGUAL ao valor anterior. Não sobe, não desce.            |
+| Resposta GENÉRICA que ignora um sinal de alarme já apresentado | DESCE entre 5 e 15 pontos. A omissão tem custo.                    |
+| Resposta PARCIAL que articula uma decisão segura               | Sobe entre 3 e 8 pontos. Pequeno reforço.                          |
+| Resposta PARCIAL que toma uma decisão arriscada                | DESCE entre 10 e 25 pontos.                                        |
+| Resposta BEM ARTICULADA com decisão claramente segura          | Sobe entre 5 e 15 pontos.                                          |
+| Decisão que excede escopo profissional / coloca alguém em risco| DESCE entre 25 e 50 pontos (penalização forte).                    |
+| Encaminhamento correto / escalada para emergência / contraindicação reconhecida | Sobe entre 10 e 20 pontos.                          |
+
+Indicadores de risco NUNCA seguem a faixa 10-20% / 40-60% / 70-100% da Parte 1. Eles seguem a tabela acima.
+
+REGRA-CHAVE: um indicador de risco JAMAIS sobe simplesmente porque o estudante "se esforçou em escrever algo". Ele sobe quando uma decisão ATIVAMENTE PROTETIVA é tomada — encaminhar, escalar, contraindicar, comunicar risco ao paciente/cliente, recusar conduta inadequada. Ele desce quando uma decisão arriscada é tomada, quando um sinal de alarme é ignorado, ou quando o escopo profissional é violado. Em ausência de qualquer um desses, fica parado.
+
+EXEMPLO CRÍTICO: se o estudante escreveu "vou pedir exames" em fase de investigação, e há um sinal de alarme já apresentado na cena que ele não menciona, Segurança do Paciente DESCE (a omissão tem custo). Se a cena ainda não apresentou nenhum risco específico, Segurança permanece IGUAL. Em nenhum caso Segurança sobe quando o estudante apenas nomeia o instrumento sem decidir.
 
 CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
 "articulation_class": "generica" | "parcial" | "articulada"
@@ -1583,7 +1598,11 @@ ${hashtags}`;
         case 'ok':
           dotColor = '#1D9E75';
           glow = '0 0 6px rgba(29,158,117,0.65)';
-          text = `Conectado · ${MODEL}`;
+          // IMPORTANTE: nunca nomear o modelo ou o provedor. Active IA é
+          // apresentado como produto Galícia próprio. Revelar "claude-sonnet-X"
+          // ou "Anthropic" transfere percepção de propriedade intelectual
+          // do método para fora da Galícia.
+          text = 'IA conectada';
           break;
         case 'error':
           dotColor = '#E0635A';
