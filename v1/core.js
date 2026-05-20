@@ -1,11 +1,49 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.11
+ * ACTIVE IA — CORE v1.2.12
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.11 PARA v1.2.12 (habilidades curtas de verdade):
+ *
+ *   PROBLEMAS RELATADOS NA SESSÃO `Testa Astrobaldo` (Júnior, cerebrovascular,
+ *   arquétipo de hemorragia intraparenquimatosa):
+ *     - Habilidades no card LinkedIn cortadas no meio da palavra mesmo com
+ *       truncamento por palavra completa da v1.2.10. Causa: o prompt da
+ *       v1.2.10 pedia "≤12 palavras", mas a IA gerava textos com 12
+ *       palavras + qualificadores ("imediatamente", "com passagem
+ *       estruturada", "baseado em evidência") chegando a 90-100 chars —
+ *       acima do limite de 80 e ainda longos demais para uma linha do
+ *       card sem ficar com reticências.
+ *     - Bug do dossiê: label "Pronto para o Pleno — caso mais denso te
+ *       espera" tinha sentido como CTA quando o estudante ia jogar de
+ *       novo na hora; em dossiê estático para arquivo/printscreen,
+ *       "te espera" soa postiço. Decisão: encurtar para "Avançar para
+ *       o nível Pleno". (Mudança no index.html do simulador.)
+ *
+ *   MUDANÇAS ATÔMICAS:
+ *
+ *   1. PROMPT de strengths/weaknesses: limite reduzido de "12 palavras"
+ *      para "MÁXIMO 8 palavras" em strengths e "MÁXIMO 10 palavras" em
+ *      weaknesses (weaknesses precisam de espaço para 'Reveja: ...').
+ *      Adicionada PROIBIÇÃO explícita de qualificadores que inflam
+ *      sem agregar: "imediatamente", "com passagem estruturada", "com
+ *      precisão técnica", "baseado em evidência", "de forma articulada".
+ *      Exemplos no prompt foram REESCRITOS para o novo padrão curto.
+ *
+ *   2. TRUNCAMENTO no card LinkedIn (função buildLinkedInCard) baixado
+ *      de 80 chars para 60 chars. Esse é o limite que cabe em UMA
+ *      linha de Montserrat 14-16px no card de 1080px de largura — não
+ *      gera quebra de linha nem truncamento visível na maioria dos
+ *      casos quando o prompt cumpre o limite de 8 palavras.
+ *
+ *   3. Demais regras da v1.2.11 (renumeração de turnos, restrição de
+ *      escopo de weaknesses, archetypeContext, filtro defensivo,
+ *      texto LinkedIn usando respondedCount) ficam INTACTAS — todas
+ *      validadas na sessão `Testa Astrobaldo`.
  *
  * MUDANÇAS DA v1.2.10 PARA v1.2.11 (renumeração + escopo de weaknesses):
  *
@@ -316,7 +354,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.11';
+  const CORE_VERSION = '1.2.12';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -1160,10 +1198,10 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     "<concept_id>": "Frase explicando por que essa classificação, com referência ao turno (ex.: 'No turno 3 articulou ASPECTS corretamente'). Para 'nao_demonstrado', explique que o caso não dava oportunidade clara."
   },
   "strengths": [
-    { "turn": N, "description": "HABILIDADE CURTA no formato 'verbo no infinitivo + objeto'. Máximo 12 palavras. SEM citação literal entre aspas. SEM exemplos. Foco na habilidade demonstrada, não no que o estudante disse. Ex.: 'Calcular ASPECTS sistematicamente em janela de partes moles e óssea' / 'Identificar lesão tandem em angio-TC cervical e intracraniana' / 'Diferir revascularização carotídea com janela ótima D14-D21'." }
+    { "turn": N, "description": "HABILIDADE no formato 'verbo no infinitivo + objeto'. MÁXIMO 8 PALAVRAS — esta é uma regra DURA, conte as palavras antes de finalizar. SEM citação literal entre aspas. SEM exemplos no texto. SEM qualificadores de reforço como 'imediatamente', 'com passagem estruturada', 'com precisão técnica', 'baseado em evidência', 'de forma articulada', 'após confirmação X', 'após diagnóstico Y' — esses qualificadores inflam o texto sem agregar informação, e ele estoura a linha do card LinkedIn. Forma ideal: 'verbo + objeto direto + complemento simples'. Ex.: 'Calcular ASPECTS em janela de partes moles' / 'Identificar lesão tandem em angio-TC' / 'Contraindicar trombólise em hemorragia confirmada' / 'Reconhecer limite de escopo e acionar neurocirurgia'." }
   ],
   "weaknesses": [
-    { "turn": N, "description": "HABILIDADE FALTANTE no formato 'verbo no infinitivo + objeto'. Máximo 15 palavras. Termine com 'Reveja: <referência específica ao módulo>.' Ex.: 'Aplicar critérios DAWN/DEFUSE-3 de mismatch core-penumbra. Reveja: T04 · Aulas 1 e 3.'" }
+    { "turn": N, "description": "HABILIDADE FALTANTE no formato 'verbo no infinitivo + objeto'. MÁXIMO 10 PALAVRAS para a habilidade em si (não conta o 'Reveja: ...'). Termine com 'Reveja: <referência específica ao módulo>.' SEM qualificadores de reforço ('imediatamente', 'com passagem estruturada', 'baseado em evidência', etc.). Ex.: 'Aplicar critérios DAWN/DEFUSE-3 de mismatch. Reveja: T04 · Aulas 1 e 3.' / 'Nomear critérios cirúrgicos em hematoma cerebelar. Reveja: arquétipo HIP do módulo.'" }
   ],
   "next_step_recommendation": {
     "action": "subir_nivel" | "repetir_nivel" | "voltar_nivel" | "revisar_modulo",
@@ -1198,7 +1236,8 @@ REGRAS PARA strengths E weaknesses (v1.2.10):
 
 - Cada item descreve UMA HABILIDADE (verbo no infinitivo + objeto), NÃO um episódio narrativo da sessão.
 - PROIBIDO incluir citação literal entre aspas do que o estudante escreveu — isso produz textos longos que não cabem no card LinkedIn.
-- PROIBIDO descrições com mais de 12 palavras em strengths, 15 em weaknesses.
+- PROIBIDO descrições com mais de 8 palavras em strengths, 10 em weaknesses (sem contar o 'Reveja:'). Conte as palavras antes de finalizar cada item.
+- PROIBIDO qualificadores que inflam sem agregar: "imediatamente", "com passagem estruturada", "com precisão técnica", "baseado em evidência", "de forma articulada", "após confirmação X", "após diagnóstico Y", "sistematicamente", "completamente". Se a frase precisa de um desses, está longa demais — corte.
 - PROIBIDO incluir item com turno N se aquele turno tem userResponse vazio (caso da abertura — turno 1 sem resposta). Filtre antes de incluir.
 - Cada habilidade deve ser reconhecível pelo estudante como algo concreto que ele fez (strengths) ou deixou de fazer (weaknesses).
 - Strengths: até 5 itens, ordenados pelo grau de excelência demonstrado.
@@ -1904,10 +1943,14 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
       // do limite e corta ali. Limite reduzido de 105 para 80.
       const competencyItems = strengths.slice(0, 5).map(s => {
         let txt = (s.description || '').trim();
-        if (txt.length > 80) {
-          const truncated = txt.substring(0, 80);
+        // v1.2.12: limite reduzido de 80 → 60 chars. Com o prompt agora
+        // pedindo MÁXIMO 8 palavras, a maioria dos itens cabe sem
+        // truncamento. Quando estoura, corta na palavra completa mais
+        // próxima (≥30 chars do início — limite mínimo razoável).
+        if (txt.length > 60) {
+          const truncated = txt.substring(0, 60);
           const lastSpace = truncated.lastIndexOf(' ');
-          txt = (lastSpace > 40 ? truncated.substring(0, lastSpace) : truncated) + '…';
+          txt = (lastSpace > 30 ? truncated.substring(0, lastSpace) : truncated) + '…';
         }
         return txt;
       });
