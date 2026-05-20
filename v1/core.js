@@ -1,11 +1,40 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.12
+ * ACTIVE IA — CORE v1.2.13
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.12 PARA v1.2.13 (acabamento final do card LinkedIn):
+ *
+ *   CONTEXTO:
+ *   Após validação completa em 4 arquétipos do módulo cerebrovascular
+ *   (estenose carotídea eletiva, LVO/tandem, HIP hemorrágico, TVC
+ *   subagudo), a v1.2.12 ficou estável em todos os aspectos críticos.
+ *   Um único ponto de acabamento visual restou: habilidades com 7-8
+ *   palavras e objeto direto mais longo (ex.: "Indicar anticoagulação
+ *   empírica com componente hemorrágico presente" — 7 palavras, 64
+ *   chars) eram truncadas pelo limite de 60 chars do card, deixando
+ *   reticências desnecessárias.
+ *
+ *   MUDANÇA ATÔMICA:
+ *   - Limite de truncamento do card LinkedIn ajustado de 60 → 68
+ *     caracteres. Esse limite continua cabendo em uma linha do
+ *     Montserrat 14-16px em card 1080px, mas acomoda frases de 7-8
+ *     palavras com objeto direto + complemento simples sem cortar.
+ *   - lastSpace mínimo ajustado de 30 → 34 (proporcional ao novo
+ *     limite — mantém a regra "só corte na palavra completa se a
+ *     palavra completa estiver razoavelmente próxima do limite").
+ *
+ *   Demais mudanças da v1.2.12 (prompt de 8 palavras em strengths,
+ *   10 em weaknesses, lista de qualificadores proibidos, fallback
+ *   de timeline.label por seed_description, etc.) ficam INTACTAS.
+ *
+ *   Esta é considerada a release de produção do módulo cerebrovascular.
+ *   Qualquer mudança subsequente será dirigida pela validação dos
+ *   próximos módulos da fábrica.
  *
  * MUDANÇAS DA v1.2.11 PARA v1.2.12 (habilidades curtas de verdade):
  *
@@ -354,7 +383,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.12';
+  const CORE_VERSION = '1.2.13';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -1943,14 +1972,17 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
       // do limite e corta ali. Limite reduzido de 105 para 80.
       const competencyItems = strengths.slice(0, 5).map(s => {
         let txt = (s.description || '').trim();
-        // v1.2.12: limite reduzido de 80 → 60 chars. Com o prompt agora
-        // pedindo MÁXIMO 8 palavras, a maioria dos itens cabe sem
-        // truncamento. Quando estoura, corta na palavra completa mais
-        // próxima (≥30 chars do início — limite mínimo razoável).
-        if (txt.length > 60) {
-          const truncated = txt.substring(0, 60);
+        // v1.2.13: limite ajustado de 60 → 68 chars. Cabe em uma linha
+        // do Montserrat 14-16px em card 1080px e acomoda frases de
+        // 7-8 palavras com objeto direto + complemento simples sem
+        // truncar (ex.: "Indicar anticoagulação empírica com
+        // componente hemorrágico presente" = 64 chars cabe inteira).
+        // Quando estoura mesmo assim, corta na palavra completa mais
+        // próxima (≥34 chars do início — proporcional ao novo limite).
+        if (txt.length > 68) {
+          const truncated = txt.substring(0, 68);
           const lastSpace = truncated.lastIndexOf(' ');
-          txt = (lastSpace > 30 ? truncated.substring(0, lastSpace) : truncated) + '…';
+          txt = (lastSpace > 34 ? truncated.substring(0, lastSpace) : truncated) + '…';
         }
         return txt;
       });
