@@ -1,11 +1,38 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.7
+ * ACTIVE IA — CORE v1.2.8
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.7 PARA v1.2.8 (logos multi-escola e selo decorativo):
+ *   - NOVO sistema de assets remotos (Lição 34): o card LinkedIn agora carrega
+ *     imagens hospedadas em GitHub Pages (mesmo origin do core) e desenha no
+ *     Canvas. Constantes ASSETS_BASE, MEDAL_SEAL_URL e mapa SCHOOL_LOGOS.
+ *     Memoização via _imageCache para não recarregar entre múltiplas
+ *     chamadas. Fallback gracioso: se asset falhar (CORS, 404, offline), o
+ *     card renderiza sem a imagem específica em vez de travar.
+ *   - REDESIGN do card LinkedIn:
+ *     • REMOVIDO selo "MAI-2026" do canto superior direito.
+ *     • REMOVIDA Galícia institucional do rodapé esquerdo (já era assim na
+ *       v1.2.7; v1.2.8 oficializa a decisão).
+ *     • REMOVIDO círculo translúcido decorativo atrás do nome (estava
+ *       criando "halo" estranho atrás da medalha — Lição 35).
+ *     • NOVO: KIT COMPLETO DA ESCOLA no canto superior direito (PNG com
+ *       G + "escola de X" + Galícia institucional embutida). Carregado de
+ *       SCHOOL_LOGOS[config.school]. Tamanho 160px de altura.
+ *     • NOVO: SELO MEDALHA DECORATIVO (estrela + fita azul) no centro-direita.
+ *       Mesmo PNG em todas as escolas — elemento institucional fixo,
+ *       não dinâmico por desempenho. Tamanho 340px de altura.
+ *     • AUTO-FIT do nome e do título da simulação para evitar colisão com a
+ *       medalha. Largura máxima 580px; fonte reduz até caber (mín 42px nome,
+ *       18px título).
+ *   - CONFIG: campo `config.school` agora é OBRIGATÓRIO no SIMULATOR_CONFIG
+ *     pra resolução do kit. Valores aceitos: 'Saúde', 'Coaching', 'Finanças',
+ *     'Gestão', 'Direito'. Se a escola não for reconhecida ou o asset não
+ *     carregar, o card renderiza sem o kit (mas com todos os outros elementos).
  *
  * MUDANÇAS DA v1.2.6 PARA v1.2.7 (refinamentos editoriais do card LinkedIn):
  *   - REESTRUTURAÇÃO do card LinkedIn em FICHA DE PROPAGANDA (Lição 33):
@@ -112,7 +139,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.7';
+  const CORE_VERSION = '1.2.8';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -123,6 +150,66 @@
     pleno:  { earlyEnd: true, trigger: 'two_generic_consecutive' },
     senior: { earlyEnd: true, trigger: 'two_weak_consecutive' }
   };
+
+  // ==========================================================================
+  // SEÇÃO 1.1 — REMOTE ASSETS (v1.2.8)
+  // ==========================================================================
+  //
+  // Assets gráficos hospedados no mesmo origin do core (GitHub Pages da
+  // Galícia). Carregados sob demanda pela função generateLinkedInCard via
+  // _loadImage(), com memoização para evitar requisições repetidas e
+  // fallback gracioso se algum asset falhar.
+  //
+  // Para substituir uma logo ou trocar o selo, basta atualizar o PNG no
+  // repositório galiciaeducacao/activeia-core (pasta /v1/assets/) — zero
+  // mudança de código necessária.
+  //
+  // SCHOOL_LOGOS resolve a logo da escola a partir de config.school.
+  // O valor de config.school deve coincidir com uma das chaves abaixo;
+  // se não coincidir, o card renderiza sem a logo da escola (mas não trava).
+
+  const ASSETS_BASE = 'https://galiciaeducacao.github.io/activeia-core/v1/assets';
+  const MEDAL_SEAL_URL = ASSETS_BASE + '/selo-medalha.png';
+  const SCHOOL_LOGOS = {
+    'Saúde':    ASSETS_BASE + '/escola-saude-kit-azul.png',
+    'Coaching': ASSETS_BASE + '/escola-coaching-kit-azul.png',
+    'Finanças': ASSETS_BASE + '/escola-financas-kit-azul.png',
+    'Gestão':   ASSETS_BASE + '/escola-gestao-kit-azul.png',
+    'Direito':  ASSETS_BASE + '/escola-direito-kit-azul.png'
+  };
+
+  const _imageCache = {};
+
+  /**
+   * Carrega uma imagem de URL remoto e retorna uma Promise que resolve com
+   * o elemento Image pronto para drawImage. Memoiza o resultado em
+   * _imageCache para chamadas subsequentes serem instantâneas.
+   *
+   * Em caso de erro de rede, CORS ou 404, resolve com null em vez de
+   * rejeitar — o chamador deve tratar null como "asset indisponível,
+   * continue sem ele".
+   *
+   * @param {string} url - URL absoluta da imagem
+   * @returns {Promise<HTMLImageElement|null>}
+   */
+  function _loadImage(url) {
+    if (!url) return Promise.resolve(null);
+    if (_imageCache[url] !== undefined) return Promise.resolve(_imageCache[url]);
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        _imageCache[url] = img;
+        resolve(img);
+      };
+      img.onerror = () => {
+        _imageCache[url] = null;
+        console.warn('[ActiveIA] Asset não disponível:', url);
+        resolve(null);
+      };
+      img.src = url;
+    });
+  }
 
   // ==========================================================================
   // SEÇÃO 2 — PERSISTENT STORAGE (IndexedDB + localStorage + cookie)
@@ -1113,7 +1200,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
   // ==========================================================================
 
   /**
-   * Gera o card LinkedIn 1080×1080 (v1.2.6 — Caminho A: claro, editorial).
+   * Gera o card LinkedIn 1080×1080 (v1.2.8 — kit de escola + selo medalha).
    *
    * Decisão de produto: o card é peça de PROPAGANDA do estudante e da Galícia
    * no LinkedIn. Por isso:
@@ -1123,21 +1210,43 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
    *     competências demonstradas, que vende muito melhor
    *   - Bordão "Conhecer para decidir. Decidir para fazer diferença." em
    *     destaque visual (caixa lateral com tint cyan)
-   *   - Selo simples MAI-2026 no canto (sem hash, decisão v1.2.6)
+   *   - KIT COMPLETO DA ESCOLA no canto superior direito (G + texto + Galícia
+   *     institucional embutida). PNG resolvido via SCHOOL_LOGOS[config.school].
+   *   - SELO MEDALHA decorativo no centro-direita. Fixo, igual em todas as
+   *     escolas. Carregado de MEDAL_SEAL_URL.
+   *   - SEM selo "MAI-2026" no canto (removido na v1.2.8 — Lição 35).
+   *   - SEM círculo translúcido decorativo atrás do nome (removido na v1.2.8 —
+   *     estava criando halo estranho atrás da medalha).
    *
    * REGRA DURA DE TIPOGRAFIA (Lição 25): Montserrat exclusivamente (Gotham não
    * roda em Canvas runtime). Hierarquia construída com peso/tamanho/letter-spacing
    * e itálico — nenhuma fonte com serifa.
    *
+   * FALLBACK GRACIOSO (Lição 34): se SCHOOL_LOGOS[config.school] ou MEDAL_SEAL_URL
+   * não carregar (CORS, 404, offline), o card renderiza sem o asset específico em
+   * vez de travar. O estudante ainda recebe um card publicável.
+   *
+   * AUTO-FIT (Lição 35): nome e título da simulação têm largura máxima de
+   * ~580px para não colidir com a medalha. Fonte reduz progressivamente até
+   * caber (nome: 76→42, título: 30→18).
+   *
    * @param {Object} state - appState
    * @param {Object} diagnosis - estrutura retornada por generateFinalDiagnosis
-   * @param {Object} config - SIMULATOR_CONFIG
+   * @param {Object} config - SIMULATOR_CONFIG (deve conter config.school)
    * @param {string} [precomputedChallenge] - texto curto do desafio (extraído
    *   da Frase 1 da caption gerada pela IA). Se omitido, usa fallback genérico.
    * @returns {Promise<Blob>} blob image/png 1080×1080
    */
   async function generateLinkedInCard(state, diagnosis, config, precomputedChallenge) {
     try { await document.fonts.ready; } catch (e) {}
+
+    // Carrega assets remotos em paralelo (com fallback se algum falhar)
+    const schoolKey = config && config.school ? config.school : null;
+    const schoolLogoUrl = schoolKey && SCHOOL_LOGOS[schoolKey] ? SCHOOL_LOGOS[schoolKey] : null;
+    const [schoolLogoImg, medalImg] = await Promise.all([
+      _loadImage(schoolLogoUrl),
+      _loadImage(MEDAL_SEAL_URL)
+    ]);
 
     const W = 1080, H = 1080;
     const canvas = document.createElement('canvas');
@@ -1162,76 +1271,101 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 
     const padL = 80, padR = 80;
 
-    // ====== EYEBROW + SELO DE SESSÃO ======
+    // ====== EYEBROW (esquerda) ======
     const eyeY = 110;
     ctx.fillStyle = '#0074C7';
     ctx.font = '600 14px "Montserrat", sans-serif';
     ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
     _drawTrackedText(ctx, 'ACTIVE IA · GALÍCIA EDUCAÇÃO', padL, eyeY, 2.5);
 
-    // Selo público à direita
-    const sessionId = getPublicSessionId(state);
-    ctx.fillStyle = 'rgba(71,85,105,0.7)';
-    ctx.font = '600 11px "Montserrat", sans-serif';
-    ctx.textAlign = 'right';
-    _drawTrackedText(ctx, 'SESSÃO', W - padR, eyeY - 14, 2);
-    ctx.fillStyle = '#0074C7';
-    ctx.font = '600 15px "Montserrat", sans-serif';
-    ctx.fillText(sessionId, W - padR, eyeY + 8);
-    ctx.textAlign = 'left';
+    // ====== KIT COMPLETO DA ESCOLA (canto superior direito) ======
+    // PNG com G + "escola de X" + Galícia institucional embutida.
+    // Altura fixa de 160px; largura proporcional. Posicionado no canto
+    // direito alinhado pelo topo do card (com leve respiro de 40px da borda).
+    if (schoolLogoImg) {
+      const logoH = 160;
+      const logoW = Math.round(schoolLogoImg.naturalWidth * logoH / schoolLogoImg.naturalHeight);
+      // Garante que não ultrapasse 280px de largura (caso o asset seja muito largo)
+      const finalLogoW = Math.min(logoW, 280);
+      const finalLogoH = Math.round(schoolLogoImg.naturalHeight * finalLogoW / schoolLogoImg.naturalWidth);
+      ctx.drawImage(schoolLogoImg, W - padR - finalLogoW, 40, finalLogoW, finalLogoH);
+    }
 
-    // Linha divisória sutil
+    // Linha divisória sutil (abaixo do cabeçalho e da logo)
     ctx.strokeStyle = '#D9D0C4';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(padL, eyeY + 28);
-    ctx.lineTo(W - padR, eyeY + 28);
+    ctx.moveTo(padL, 220);
+    ctx.lineTo(W - padR, 220);
     ctx.stroke();
 
-    // ====== NOME DO ESTUDANTE (peça monumental, fundo claro) ======
-    // Montserrat ExtraBold 80px, primeiro nome em navy + sobrenome em italic cyan azul
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '800 76px "Montserrat", sans-serif';
+    // ====== NOME DO ESTUDANTE (com auto-fit) ======
+    // Largura máxima do nome: até onde a medalha começa (~580px confortável).
+    // Reduz fonte de 76 até 42 até caber.
     const userName = (state.userName || 'Estudante').trim();
     const nameParts = userName.split(/\s+/);
     const firstName = nameParts[0] || userName;
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
-    const nameY = 230;
+    const MAX_NAME_WIDTH = 580;
+    let nameSize = 76;
+    while (nameSize > 42) {
+      ctx.font = '800 ' + nameSize + 'px "Montserrat", sans-serif';
+      const wFirst = ctx.measureText(firstName).width;
+      ctx.font = 'italic 800 ' + nameSize + 'px "Montserrat", sans-serif';
+      const wLast = lastName ? ctx.measureText(' ' + lastName).width : 0;
+      if (wFirst + wLast <= MAX_NAME_WIDTH) break;
+      nameSize -= 2;
+    }
+
+    const nameY = 280;
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '800 ' + nameSize + 'px "Montserrat", sans-serif';
     ctx.fillText(firstName, padL, nameY);
     const firstNameW = ctx.measureText(firstName).width;
-
     if (lastName) {
-      const totalW = firstNameW + ctx.measureText(' ' + lastName).width;
-      if (totalW < W - padL - padR) {
-        ctx.fillStyle = '#0074C7';
-        ctx.font = 'italic 800 76px "Montserrat", sans-serif';
-        ctx.fillText(' ' + lastName, padL + firstNameW, nameY);
-      } else {
-        ctx.fillStyle = '#0074C7';
-        ctx.font = 'italic 800 76px "Montserrat", sans-serif';
-        ctx.fillText(lastName, padL, nameY + 80);
-      }
+      ctx.fillStyle = '#0074C7';
+      ctx.font = 'italic 800 ' + nameSize + 'px "Montserrat", sans-serif';
+      ctx.fillText(' ' + lastName, padL + firstNameW, nameY);
     }
-    const hasLineBreak = lastName && (firstNameW + ctx.measureText(' ' + lastName).width >= W - padL - padR);
-    const nameEndY = hasLineBreak ? nameY + 80 : nameY;
 
     // Subtítulo (linha descritiva)
+    const subY = nameY + Math.round(nameSize * 1.3);
     ctx.fillStyle = '#475569';
     ctx.font = '400 20px "Montserrat", sans-serif';
-    ctx.fillText('concluiu a simulação profissional', padL, nameEndY + 36);
+    ctx.fillText('concluiu a simulação profissional', padL, subY);
 
-    // ====== TÍTULO DO MÓDULO ======
+    // ====== TÍTULO DO MÓDULO (com auto-fit) ======
     const moduleTopic = (config.name || '').split(':')[0].trim();
-    ctx.fillStyle = '#0a1628';
-    ctx.font = '700 30px "Montserrat", sans-serif';
-    const titleLines = wrapText(ctx, moduleTopic, W - padL - padR).slice(0, 2);
-    let ty = nameEndY + 80;
-    for (const ln of titleLines) {
-      ctx.fillText(ln, padL, ty);
-      ty += 38;
+    let titleSize = 28;
+    while (titleSize > 18) {
+      ctx.font = '700 ' + titleSize + 'px "Montserrat", sans-serif';
+      if (ctx.measureText(moduleTopic).width <= MAX_NAME_WIDTH) break;
+      titleSize -= 1;
     }
-    let cursorY = ty + 16;
+    const titleY = subY + 38;
+    ctx.fillStyle = '#0a1628';
+    ctx.font = '700 ' + titleSize + 'px "Montserrat", sans-serif';
+    const titleLines = wrapText(ctx, moduleTopic, MAX_NAME_WIDTH).slice(0, 2);
+    let tY = titleY;
+    for (const ln of titleLines) {
+      ctx.fillText(ln, padL, tY);
+      tY += titleSize + 8;
+    }
+    let cursorY = tY + 14;
+
+    // ====== SELO MEDALHA DECORATIVO (centro-direita, fixo) ======
+    // Carregado de MEDAL_SEAL_URL — mesmo PNG para todas as escolas.
+    // Posicionado para ficar verticalmente próximo ao nome/título, no eixo
+    // direito do card. Altura fixa de 340px. Se não carregar, é omitido.
+    if (medalImg) {
+      const medalH = 340;
+      const medalW = Math.round(medalImg.naturalWidth * medalH / medalImg.naturalHeight);
+      const medalX = W - padR - medalW - 90;
+      const medalY = 270;
+      ctx.drawImage(medalImg, medalX, medalY, medalW, medalH);
+    }
 
     // ====== DESAFIO (texto curto do caso enfrentado) ======
     // Reaproveita a Frase 1 do texto LinkedIn gerado pela IA (precomputedChallenge).
@@ -1243,28 +1377,24 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 
     let challengeText = (precomputedChallenge || '').trim();
     if (!challengeText) {
-      // Fallback: extrai o role do config sem citar técnicas/escores
       const role = (config.role_context || '').split(/[.:]/)[0].trim();
       challengeText = role
-        ? `Assumi o papel de ${role.toLowerCase()} em um caso real do mercado.`
+        ? 'Assumi o papel de ' + role.toLowerCase() + ' em um caso real do mercado.'
         : 'Enfrentei um caso real do mercado com decisão sob pressão.';
     }
-    // Limite duro de 240 chars no card pra caber em 2 linhas confortáveis
     if (challengeText.length > 240) challengeText = challengeText.substring(0, 237) + '…';
 
     ctx.fillStyle = '#0a1628';
     ctx.font = '400 17px "Montserrat", sans-serif';
-    const challengeLines = wrapText(ctx, challengeText, W - padL - padR).slice(0, 3);
+    // Largura do bloco: até onde a medalha começa (mesmos 580px do nome)
+    const challengeLines = wrapText(ctx, challengeText, MAX_NAME_WIDTH).slice(0, 3);
     for (const ln of challengeLines) {
       ctx.fillText(ln, padL, cursorY);
       cursorY += 24;
     }
-    cursorY += 18;
+    cursorY += 16;
 
-    // ====== FASES DECISÓRIAS (do SIMULATOR_CONFIG.phases) ======
-    // As fases são específicas do simulador. Cerebrovascular: Avaliação clínica · Investigação · Conduta.
-    // Direito: Tese · Argumentação · Decisão. Gestão: Diagnóstico · Plano · Execução. Etc.
-    // Sempre representa fielmente o desenho do simulador específico.
+    // ====== FASES DECISÓRIAS ======
     ctx.fillStyle = '#0074C7';
     ctx.font = '600 12px "Montserrat", sans-serif';
     _drawTrackedText(ctx, 'FASES DECISÓRIAS', padL, cursorY, 2);
@@ -1280,32 +1410,25 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     ctx.font = '400 18px "Montserrat", sans-serif';
     ctx.fillText('▸  ' + turnsPlayed + ' turnos de decisão sob pressão', padL, cursorY);
     cursorY += 28;
-    // Quebra fases em múltiplas linhas se necessário
-    const phasesLines = wrapText(ctx, '▸  ' + phasesLine, W - padL - padR).slice(0, 2);
+    const phasesLines = wrapText(ctx, '▸  ' + phasesLine, MAX_NAME_WIDTH).slice(0, 2);
     for (const ln of phasesLines) {
       ctx.fillText(ln, padL, cursorY);
       cursorY += 28;
     }
-    cursorY += 16;
+    cursorY += 12;
 
-    // ====== COMPETÊNCIAS DEMONSTRADAS (todas as positivas, até 5) ======
-    // Sem fallback fake: se diagnosis.strengths vier vazio, omite o bloco inteiro.
-    // Honestidade pedagógica — se o estudante não demonstrou competências de
-    // destaque, o card não inventa. É publicidade verdadeira.
-    //
-    // TRAVA DE ALTURA: o bordão começa em y=880. As competências não podem
-    // invadir essa área. Se o cursor passar de y=855, paramos de renderizar
-    // novas competências (o estudante ainda recebe as principais; o card
-    // continua publicável).
+    // ====== COMPETÊNCIAS DEMONSTRADAS ======
+    // Sem fallback fake: se diagnosis.strengths vier vazio, omite o bloco.
+    // TRAVA DE ALTURA: o bordão começa em y=870. As competências não podem
+    // invadir essa área. Se o cursor passar de y=850, paramos.
     const strengths = (diagnosis && diagnosis.strengths) || [];
-    const MAX_Y_COMPETENCIAS = 855;
+    const MAX_Y_COMPETENCIAS = 850;
     if (strengths.length > 0 && cursorY < MAX_Y_COMPETENCIAS) {
       ctx.fillStyle = '#0074C7';
       ctx.font = '600 12px "Montserrat", sans-serif';
       _drawTrackedText(ctx, 'COMPETÊNCIAS DEMONSTRADAS', padL, cursorY, 2);
       cursorY += 26;
 
-      // Pega até 5 competências. Cada uma corta em 105 chars pra caber em 1 linha confortável.
       const competencyItems = strengths.slice(0, 5).map(s => {
         let txt = (s.description || '').trim();
         if (txt.length > 105) txt = txt.substring(0, 102) + '…';
@@ -1313,18 +1436,16 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       });
 
       ctx.fillStyle = '#0a1628';
-      // Font ajustada por quantidade: até 3 itens fonte 16, 4 itens fonte 15, 5 itens fonte 14
       const n = competencyItems.length;
       const compFontSize = n <= 3 ? 16 : (n === 4 ? 15 : 14);
       const compLineH = n <= 3 ? 22 : (n === 4 ? 20 : 19);
       const compGap = n <= 3 ? 4 : (n === 4 ? 3 : 2);
-      ctx.font = `400 ${compFontSize}px "Montserrat", sans-serif`;
+      ctx.font = '400 ' + compFontSize + 'px "Montserrat", sans-serif';
 
       let renderedCount = 0;
       let omittedCount = 0;
       for (const it of competencyItems) {
         const lines = wrapText(ctx, '•  ' + it, W - padL - padR);
-        // Verifica se cabe (com até 2 linhas)
         const needed = Math.min(lines.length, 2) * compLineH + compGap;
         if (cursorY + needed > MAX_Y_COMPETENCIAS) {
           omittedCount = competencyItems.length - renderedCount;
@@ -1337,25 +1458,20 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
         cursorY += compGap;
         renderedCount++;
       }
-      // Se sobrou competência sem espaço, indica
       if (omittedCount > 0 && cursorY < MAX_Y_COMPETENCIAS) {
         ctx.fillStyle = '#94a3b8';
         ctx.font = 'italic 400 13px "Montserrat", sans-serif';
-        ctx.fillText(`+ ${omittedCount} outra${omittedCount > 1 ? 's' : ''} competência${omittedCount > 1 ? 's' : ''} no relatório completo`, padL, cursorY);
+        ctx.fillText('+ ' + omittedCount + ' outra' + (omittedCount > 1 ? 's' : '') + ' competência' + (omittedCount > 1 ? 's' : '') + ' no relatório completo', padL, cursorY);
       }
     }
 
     // ====== BORDÃO INSTITUCIONAL (caixa de destaque) ======
-    // Posição fixa próxima ao rodapé
-    const bordaoY = 880;
+    const bordaoY = 870;
     const bordaoH = 78;
-    // Fundo tint cyan claro
     ctx.fillStyle = '#E8F4FF';
     ctx.fillRect(padL, bordaoY, W - padL - padR, bordaoH);
-    // Barra lateral de destaque
     ctx.fillStyle = '#0074C7';
     ctx.fillRect(padL, bordaoY, 4, bordaoH);
-    // Texto
     ctx.fillStyle = '#0a1628';
     ctx.font = '500 22px "Montserrat", sans-serif';
     ctx.fillText('Conhecer para decidir.', padL + 24, bordaoY + 32);
@@ -1364,7 +1480,6 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     ctx.fillText('Decidir para fazer diferença.', padL + 24, bordaoY + 60);
 
     // ====== RODAPÉ ======
-    // Linha sutil
     ctx.strokeStyle = '#D9D0C4';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1372,19 +1487,14 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     ctx.lineTo(W - padR, H - 78);
     ctx.stroke();
 
-    // Método (esquerda)
-    ctx.fillStyle = '#0074C7';
-    ctx.font = '600 12px "Montserrat", sans-serif';
-    _drawTrackedText(ctx, 'MÉTODO ACTIVE IA', padL, H - 50, 2.5);
-
-    // Subtítulo rodapé
-    ctx.fillStyle = '#475569';
+    // Subtítulo rodapé esquerda (sem logo Galícia institucional — removida na v1.2.8)
+    ctx.fillStyle = '#94a3b8';
     ctx.font = '400 12px "Montserrat", sans-serif';
-    ctx.fillText('Simulação profissional avaliada por IA em tempo real · Galícia Educação', padL, H - 28);
+    ctx.fillText('Método Active IA · Simulação profissional avaliada por IA', padL, H - 28);
 
     // Data (direita)
     ctx.fillStyle = '#94a3b8';
-    ctx.font = '500 12px "Montserrat", sans-serif';
+    ctx.font = '500 13px "Montserrat", sans-serif';
     const dateStr = new Date(state.completedAt || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
     ctx.textAlign = 'right';
     ctx.fillText(dateStr, W - padR, H - 28);
