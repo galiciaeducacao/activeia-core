@@ -1,11 +1,52 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.8
+ * ACTIVE IA — CORE v1.2.9
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.8 PARA v1.2.9 (calibração de indicadores de risco):
+ *   - REVISÃO da PARTE 4 da Regra de Proporcionalidade (semântica de
+ *     indicadores de RISCO). Motivação: em sessão de teste do simulador
+ *     cerebrovascular (escola Saúde), Segurança do Paciente caiu apenas
+ *     metade do valor inicial mesmo após o estudante manifestar intenção
+ *     explícita de dar alta em paciente com crise focal aguda, cefaleia
+ *     progressiva ortostática e TC com hipodensidade lobar + componente
+ *     hiperdenso (padrão de trombose venosa cerebral com transformação
+ *     hemorrágica). A IA reconheceu o risco no texto da avaliação, mas a
+ *     pontuação numérica caiu apenas ~15 pontos. Calibração antiga tratava
+ *     "omissão" e "decisão ativamente perigosa" como gradação contínua,
+ *     sem gatilhos categóricos nem efeito cumulativo.
+ *   - NOVO na PARTE 4: três acréscimos à tabela de risco —
+ *     • GATILHO CATEGÓRICO (risco crítico irreversível): certas decisões
+ *       (alta/encerramento de cuidado com sinal ativo de risco grave;
+ *       prescrição/procedimento fora de habilitação com dano potencial;
+ *       omissão de manejo de emergência reconhecível) levam o indicador
+ *       de risco a ≤10 imediatamente, no turno em que ocorrem. Não é
+ *       gradação, é gatilho.
+ *     • INÉRCIA CLÍNICA EM PACIENTE GRAVE (3+ turnos consecutivos sem
+ *       hipótese, sem exame físico/anamnese descrita, com sinais de
+ *       alarme presentes na cena): risco desce 20-35 pontos no turno em
+ *       que a inércia se confirma. Acumula sobre quedas anteriores.
+ *     • MODULAÇÃO POR GRAVIDADE DO QUADRO: quando a cena já apresentou
+ *       sinais explícitos de alarme (NIHSS ≥4, crise ativa, déficit
+ *       focal, instabilidade hemodinâmica, achado de imagem grave), as
+ *       faixas de queda da tabela DOBRAM.
+ *   - NOVO no checkEarlyTermination (SEÇÃO 8): regra de RISCO CRÍTICO
+ *     atravessa a blindagem do Júnior. Se qualquer indicador de RISCO
+ *     (inicial > 0) chega a ≤10, encerra a sessão imediatamente em
+ *     QUALQUER nível, inclusive Júnior. Continua valendo a blindagem do
+ *     Júnior contra encerramento por articulação fraca e contra hard_fail
+ *     global por baixo desempenho geral — essas duas regras são
+ *     pedagógicas (não frustrar iniciante). Mas Segurança a ≤10 não é
+ *     "articulação fraca"; é decisão clínica incompatível com o cuidado.
+ *     A blindagem não se aplica.
+ *   - Mantida a regra de blindagem do Júnior contra: articulação genérica
+ *     repetida (Regra 1) e hard_fail global por soma baixa (Regra 2).
+ *   - Sem mudança em SCHOOL_LOGOS, sistema de assets, card LinkedIn,
+ *     relatório, persistência, ou qualquer outra superfície da v1.2.8.
  *
  * MUDANÇAS DA v1.2.7 PARA v1.2.8 (logos multi-escola e selo decorativo):
  *   - NOVO sistema de assets remotos (Lição 34): o card LinkedIn agora carrega
@@ -139,7 +180,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.8';
+  const CORE_VERSION = '1.2.9';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -684,9 +725,13 @@ PARTE 4 — INDICADORES DE RISCO TÊM SEMÂNTICA DIFERENTE
 
 Alguns indicadores do simulador são INDICADORES DE RISCO, não de desempenho. São identificáveis porque começam com valor INICIAL DIFERENTE DE ZERO (geralmente 50). Exemplos comuns: "Segurança do Paciente", "Segurança do Cliente", "Risco Reputacional", "Risco Operacional", "Risco Legal", "Integridade da Decisão".
 
-REGRA DOS INDICADORES DE RISCO (precedência sobre a tabela acima):
+A semântica destes indicadores é categórica e cumulativa, não uma régua linear de desempenho. A tabela abaixo TEM PRECEDÊNCIA sobre qualquer regra de pontuação da Parte 1.
 
-| Situação do turno                                              | O que acontece com o indicador de risco                            |
+═══════════════════════════════════════════════════════════════════════
+TABELA BASE — quedas e ganhos por turno isolado
+═══════════════════════════════════════════════════════════════════════
+
+| Situação do turno                                              | Efeito no indicador de risco                                       |
 |----------------------------------------------------------------|--------------------------------------------------------------------|
 | Resposta GENÉRICA que não decide nada perigoso                 | Permanece IGUAL ao valor anterior. Não sobe, não desce.            |
 | Resposta GENÉRICA que ignora um sinal de alarme já apresentado | DESCE entre 5 e 15 pontos. A omissão tem custo.                    |
@@ -694,13 +739,54 @@ REGRA DOS INDICADORES DE RISCO (precedência sobre a tabela acima):
 | Resposta PARCIAL que toma uma decisão arriscada                | DESCE entre 10 e 25 pontos.                                        |
 | Resposta BEM ARTICULADA com decisão claramente segura          | Sobe entre 5 e 15 pontos.                                          |
 | Decisão que excede escopo profissional / coloca alguém em risco| DESCE entre 25 e 50 pontos (penalização forte).                    |
-| Encaminhamento correto / escalada para emergência / contraindicação reconhecida | Sobe entre 10 e 20 pontos.                          |
+| Encaminhamento correto / escalada para emergência / contraindicação reconhecida | Sobe entre 10 e 20 pontos.                        |
 
-Indicadores de risco NUNCA seguem a faixa 10-20% / 40-60% / 70-100% da Parte 1. Eles seguem a tabela acima.
+═══════════════════════════════════════════════════════════════════════
+ACRÉSCIMO 1 — GATILHO CATEGÓRICO (RISCO CRÍTICO IRREVERSÍVEL)
+═══════════════════════════════════════════════════════════════════════
+
+Certas decisões não são gradações de "ruim" — são INCOMPATÍVEIS com o exercício profissional responsável. Quando ocorrem, o indicador de risco vai a ≤10 IMEDIATAMENTE, no mesmo turno em que a decisão é tomada. Isto SUBSTITUI a tabela base; não é cumulativo com ela.
+
+Disparadores categóricos (lista NÃO exaustiva — a IA aplica julgamento profissional dentro do domínio):
+
+- Alta, encerramento de atendimento, dispensa do paciente/cliente, ou recomendação equivalente quando há sinal ativo de risco grave presente na cena (crise focal aguda, déficit neurológico, instabilidade hemodinâmica, sinal de alarme cardiológico, ideação suicida ativa, sinal de violência, qualquer condição que exija manejo continuado).
+- Prescrição, procedimento, intervenção ou conduta que excede a habilitação legal do profissional retratado, com potencial de dano direto (ex.: tricologista prescrevendo finasterida; coach orientando suspensão de medicação psiquiátrica; nutricionista prescrevendo insulina).
+- Omissão explícita de manejo de emergência reconhecível pelo padrão clínico/profissional do caso (ex.: não acionar SAMU/equipe diante de AVC ativo; não escalar uma denúncia de abuso; ignorar sinal de tentativa de suicídio).
+- Decisão que viola consentimento, sigilo profissional, ou ética básica de forma direta e identificável (ex.: divulgar dado do cliente sem autorização; conduzir procedimento sem consentimento).
+
+Quando um disparador categórico é identificado: indicador de risco vai a um valor entre 0 e 10. O parágrafo de feedback NOMEIA explicitamente o gatilho ("a decisão de dar alta neste contexto representa risco crítico para a paciente"). A classificação de articulação É "generica" (uma decisão categóricamente errada nunca é "articulada", independente da prosa). O campo case_state.key_signals_missed lista o sinal de alarme ignorado.
+
+EXEMPLO: estudante escreve "vou dar alta com orientação de retorno se piorar" em paciente de 31 anos com crise focal em MS esquerdo, cefaleia progressiva ortostática há 5 dias, e TC com hipodensidade parietal D + componente hiperdenso. Disparador categórico ATIVADO (alta em sinal ativo de risco neurológico grave). Segurança do Paciente vai a um valor entre 0 e 10 neste turno. Sem gradação.
+
+═══════════════════════════════════════════════════════════════════════
+ACRÉSCIMO 2 — INÉRCIA CLÍNICA EM PACIENTE GRAVE
+═══════════════════════════════════════════════════════════════════════
+
+Três turnos consecutivos OU MAIS com TODAS as características abaixo, em cena que já apresentou sinais de alarme:
+
+(a) sem hipótese diagnóstica/etiológica/topográfica formulada;
+(b) sem exame físico ou anamnese dirigida descrita;
+(c) sem decisão de encaminhamento, escalada, ou manejo direto.
+
+Quando esse padrão se confirma no terceiro turno consecutivo (ou em qualquer turno subsequente que mantenha o padrão), o indicador de risco DESCE entre 20 e 35 pontos no turno em que a inércia se confirma. Este efeito ACUMULA sobre quedas anteriores da tabela base.
+
+A inércia não é "articulação fraca" — é negligência clínica. O paciente está esperando uma decisão que não chega, e a omissão prolongada compõe o risco. O feedback NOMEIA literalmente: "três turnos sem hipótese, sem exame físico e sem decisão em um quadro com sinais de alarme presentes desde o turno 1 — a inércia clínica compõe o risco para o paciente".
+
+═══════════════════════════════════════════════════════════════════════
+ACRÉSCIMO 3 — MODULAÇÃO POR GRAVIDADE DO QUADRO
+═══════════════════════════════════════════════════════════════════════
+
+A tabela base assume um quadro de gravidade moderada. Quando a cena já apresentou sinais explícitos de alarme — NIHSS ≥4, crise convulsiva ativa, déficit focal, instabilidade hemodinâmica, achado de imagem grave, sinal de emergência cardiológica/neurológica/psiquiátrica explicitamente presente —, AS FAIXAS DE QUEDA DA TABELA BASE DOBRAM.
+
+Exemplos:
+- "Resposta genérica que ignora sinal de alarme" passa de 5-15 para 10-30 pontos de queda.
+- "Resposta parcial que toma decisão arriscada" passa de 10-25 para 20-50 pontos.
+
+Ganhos (quando a decisão é protetiva) NÃO são dobrados — o objetivo é refletir a gravidade do quadro no custo do erro, não inflar a recompensa.
+
+═══════════════════════════════════════════════════════════════════════
 
 REGRA-CHAVE: um indicador de risco JAMAIS sobe simplesmente porque o estudante "se esforçou em escrever algo". Ele sobe quando uma decisão ATIVAMENTE PROTETIVA é tomada — encaminhar, escalar, contraindicar, comunicar risco ao paciente/cliente, recusar conduta inadequada. Ele desce quando uma decisão arriscada é tomada, quando um sinal de alarme é ignorado, ou quando o escopo profissional é violado. Em ausência de qualquer um desses, fica parado.
-
-EXEMPLO CRÍTICO: se o estudante escreveu "vou pedir exames" em fase de investigação, e há um sinal de alarme já apresentado na cena que ele não menciona, Segurança do Paciente DESCE (a omissão tem custo). Se a cena ainda não apresentou nenhum risco específico, Segurança permanece IGUAL. Em nenhum caso Segurança sobe quando o estudante apenas nomeia o instrumento sem decidir.
 
 CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
 "articulation_class": "generica" | "parcial" | "articulada"
@@ -717,14 +803,40 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
     const turnsConfig = config.levels[level];
 
     // ========================================================================
+    // REGRA 0 — RISCO CRÍTICO (v1.2.9): atravessa a blindagem do Júnior
+    // ========================================================================
+    // Se qualquer indicador de RISCO (inicial > 0) chegou a ≤10, encerra
+    // imediatamente em QUALQUER nível, inclusive Júnior. Esta regra é
+    // DIFERENTE da blindagem do Júnior porque Segurança a 0 não é
+    // "articulação fraca" (que justifica blindar iniciante) — é decisão
+    // clínica incompatível com o cuidado. A sessão precisa parar pra
+    // o estudante entender que existe um limite duro de responsabilidade
+    // profissional, e que esse limite vale no nível de entrada também.
+    const riskIndicators = config.indicators.filter(i => i.initial > 0);
+    for (const riskInd of riskIndicators) {
+      const currentValue = indicators[riskInd.id];
+      if (typeof currentValue === 'number' && currentValue <= 10) {
+        return {
+          terminate: true,
+          reason: 'critical_risk',
+          recommendation: 'revisao_completa',
+          message: `O indicador "${riskInd.name}" chegou a um patamar crítico. A simulação encerra porque a decisão tomada é incompatível com o exercício profissional responsável. Esta regra vale em todos os níveis, inclusive Júnior — porque o limite ético-clínico não admite gradação por nível de entrada. Revise o material do módulo antes de uma nova tentativa.`,
+          triggered_indicator: riskInd.id
+        };
+      }
+    }
+
+    // ========================================================================
     // BLINDAGEM JÚNIOR (regra dura do HANDOFF — não reabrir)
     // ========================================================================
-    // Júnior NUNCA encerra antecipadamente. A simulação só termina quando
-    // chega ao último turno definido em LEVEL_CONFIG. Esta regra existe
-    // porque o Júnior é o nível de entrada, e encerrar antecipadamente
-    // frustra alunos iniciantes que ainda estão calibrando articulação.
-    // Hard fail global, encerramento por articulação genérica, qualquer
-    // game_over vindo da IA — TUDO É IGNORADO no Júnior.
+    // Júnior NUNCA encerra antecipadamente por articulação fraca ou hard fail
+    // global. A simulação só termina quando chega ao último turno definido
+    // em LEVEL_CONFIG. Esta regra existe porque o Júnior é o nível de
+    // entrada, e encerrar antecipadamente frustra alunos iniciantes que
+    // ainda estão calibrando articulação.
+    // ATENÇÃO: na v1.2.9, RISCO CRÍTICO (Regra 0 acima) atravessa esta
+    // blindagem. A blindagem aqui cobre APENAS Regra 1 (articulação) e
+    // Regra 2 (hard fail por soma baixa).
     if (level === 'junior') {
       return { terminate: false };
     }
