@@ -1,11 +1,94 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.9
+ * ACTIVE IA — CORE v1.2.10
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.9 PARA v1.2.10 (calibração, schema, contagem, card):
+ *
+ *   PROBLEMAS RELATADOS NA SESSÃO `teste da silva` (Júnior, cerebrovascular):
+ *     - Turnos 3 e 4 sem feedback inline (IA omitiu campos do schema)
+ *     - Indicador Acurácia fechou em 68 mesmo com leitura topográfica
+ *       exemplar (penalidade indevida de phaseWeights desbalanceado)
+ *     - Indicadores Fundamentação/Segurança/Decisão pararam abaixo de 100
+ *       sem razão pedagógica clara — IA reservava margem para turnos
+ *       inexistentes em sessão Júnior de 4 turnos
+ *     - Recomendação "Repetir Júnior" disparada em desempenho exemplar
+ *       (prompt sem critérios objetivos para subir/repetir/voltar)
+ *     - Contador "3 de 3" articulação plena (deveria ser "4 de 4") — bug
+ *       de denominador usando articulationHistory.length em vez de turns
+ *       configurado
+ *     - Turno 1 (abertura) renderizado como "Articulação genérica" no
+ *       transcript e com weakness "turno 1 entregue vazio"
+ *     - "Competências demonstradas" no card LinkedIn estavam truncadas no
+ *       meio de palavra e eram, semanticamente, habilidades — não
+ *       competências
+ *     - Habilidades curtas eram longas demais por causa do prompt pedir
+ *       "citação literal" do que o estudante escreveu
+ *
+ *   MUDANÇAS ATÔMICAS:
+ *
+ *   1. SCHEMA JSON do turn-prompt fortalecido (no index.html do simulador):
+ *      campos `feedback` e `articulation_class` agora têm flag explícita
+ *      "OBRIGATÓRIO — nunca omitir". Adicionada nota de sanity check no
+ *      final do schema reforçando que a IA precisa revalidar a presença
+ *      desses dois campos antes de emitir o JSON.
+ *
+ *   2. PARTE 4 da Regra de Proporcionalidade ganha REGRA DE TETO DO
+ *      ÚLTIMO TURNO: quando o último turno do nível é articulado e
+ *      exemplar pelo critério do módulo, o indicador-foco da fase fecha
+ *      entre 95 e 100. Sem reserva de margem para turnos inexistentes.
+ *
+ *   3. PROMPT do generateFinalDiagnosis (SEÇÃO 9) reescrito em 3 pontos:
+ *      a) Critérios objetivos para `next_step_recommendation.action`:
+ *         - subir_nivel: ≥75% turnos respondidos com articulação plena
+ *           E média dos indicadores ≥80
+ *         - repetir_nivel: 50-74% articulação plena E média 60-79
+ *         - voltar_nivel: válido só em Pleno/Sênior, critério severo
+ *         - revisar_modulo: <50% articulação plena OU média <60 OU
+ *           indicador de risco em queda crítica (≤25)
+ *      b) Schema de `strengths.description`: agora exige frase curta no
+ *         formato "verbo no infinitivo + objeto", ≤12 palavras, SEM
+ *         citação literal do que o estudante escreveu (eram essas
+ *         citações que produziam os textos longos truncados no card).
+ *      c) `next_step_recommendation.rationale` agora exige tom
+ *         construtivo, mensagem direta ao estudante em 2-3 frases,
+ *         nomeando a justificativa numérica do critério.
+ *
+ *   4. CARD LINKEDIN — bloco de "COMPETÊNCIAS DEMONSTRADAS" renomeado
+ *      para "HABILIDADES DEMONSTRADAS" (decisão firmada com o gestor:
+ *      competência é o que o módulo inteiro forma; habilidade é o que
+ *      cada turno demonstra). Truncamento de texto agora corta no
+ *      último espaço antes do limite (não no meio da palavra). Limite
+ *      reduzido de 105 para 80 chars.
+ *
+ *   5. RELATÓRIO/DOSSIÊ — contagem de turnos unificada com a
+ *      experiência subjetiva do estudante:
+ *      a) Transcript: a entrada de abertura (turn 1, userResponse: null)
+ *         é FUNDIDA com a entrada da primeira resposta (turn 1 com
+ *         userResponse) em um único bloco "Turno 01". A cena de
+ *         abertura aparece como "Cena inicial" antes da resposta.
+ *         Resultado: Júnior mostra 4 turnos no transcript (não 5).
+ *      b) Pontos fortes/fracos: itens que apontem para turno cuja
+ *         entrada no turnLog tem userResponse=null são FILTRADOS
+ *         silenciosamente. Elimina o falso weakness "turno 1 entregue
+ *         vazio".
+ *      c) Tag de articulação no transcript: só renderiza para entradas
+ *         com userResponse não-nulo.
+ *
+ *   6. (Nenhuma mudança no checkEarlyTermination — a Regra 0 de risco
+ *      crítico da v1.2.9 segue intacta e validada.)
+ *
+ *   Mudanças que precisam acontecer no index.html do simulador (não no
+ *   core, porque variam por simulador):
+ *     - phaseWeights reequilibrado (no caso do cerebrovascular: Acurácia
+ *       sobe pra peso 1.0 também na fase de investigação)
+ *     - Contador "X de Y" no dossiê: denominador = turns configurado,
+ *       não articulationHistory.length
+ *     - Cache-buster atualizado para ?v=1.2.10
  *
  * MUDANÇAS DA v1.2.8 PARA v1.2.9 (calibração de indicadores de risco):
  *   - REVISÃO da PARTE 4 da Regra de Proporcionalidade (semântica de
@@ -180,7 +263,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.9';
+  const CORE_VERSION = '1.2.10';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -785,6 +868,18 @@ Exemplos:
 Ganhos (quando a decisão é protetiva) NÃO são dobrados — o objetivo é refletir a gravidade do quadro no custo do erro, não inflar a recompensa.
 
 ═══════════════════════════════════════════════════════════════════════
+ACRÉSCIMO 4 — REGRA DE TETO DO ÚLTIMO TURNO (v1.2.10)
+═══════════════════════════════════════════════════════════════════════
+
+No ÚLTIMO turno do nível (turno 4 no Júnior, 6 no Pleno, 9 no Sênior), se a resposta do estudante é classificada como "articulada" E o conteúdo cobre o que o módulo considera padrão de excelência, o INDICADOR-FOCO da fase em que o último turno se encerra deve fechar entre 95 e 100.
+
+Justificativa: indicadores são acumulativos e o último turno é a última oportunidade do estudante. Não há "turno seguinte" para usar margem reservada. Em sessões Júnior (apenas 4 turnos respondidos), reservar margem é matematicamente impossível de aproveitar e cria a falsa sensação de teto baixo para desempenho exemplar.
+
+REGRA DE BOLSO: se você se vê escrevendo "esse indicador podia subir mais nos próximos turnos" no último turno, PARE. O próximo turno NÃO EXISTE. Use a margem agora.
+
+Esta regra NÃO se aplica a indicadores que ficaram subarticulados ao longo da sessão (ex.: o estudante nunca explorou um eixo coberto pelo indicador). Aplica-se apenas ao indicador-foco da fase do último turno, quando a resposta final é articulada e completa.
+
+═══════════════════════════════════════════════════════════════════════
 
 REGRA-CHAVE: um indicador de risco JAMAIS sobe simplesmente porque o estudante "se esforçou em escrever algo". Ele sobe quando uma decisão ATIVAMENTE PROTETIVA é tomada — encaminhar, escalar, contraindicar, comunicar risco ao paciente/cliente, recusar conduta inadequada. Ele desce quando uma decisão arriscada é tomada, quando um sinal de alarme é ignorado, ou quando o escopo profissional é violado. Em ausência de qualquer um desses, fica parado.
 
@@ -901,17 +996,49 @@ Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
     const finalIndicators = state.indicators;
     const articulationProfile = state.articulationHistory.join(' → ');
 
+    // ========================================================================
+    // CÁLCULOS PRÉ-COMPUTADOS PARA OS CRITÉRIOS OBJETIVOS DA RECOMENDAÇÃO
+    // (v1.2.10 — sem isso, a IA recomendava conservadoramente sempre)
+    // ========================================================================
+    const respondedTurns = state.turnLog.filter(t => t.userResponse);
+    const respondedCount = respondedTurns.length;
+    const articulatedCount = state.articulationHistory.filter(c => c === 'articulada').length;
+    const articulationPct = respondedCount > 0
+      ? Math.round((articulatedCount / respondedCount) * 100)
+      : 0;
+
+    // Média dos indicadores normalizados (0-100)
+    const indicatorAvg = config.indicators.length > 0
+      ? Math.round(
+          config.indicators.reduce((acc, ind) => {
+            const v = finalIndicators[ind.id] || 0;
+            const pct = (v / ind.max) * 100;
+            return acc + pct;
+          }, 0) / config.indicators.length
+        )
+      : 0;
+
+    // Indicadores de risco em queda crítica (≤25)?
+    const riskInCriticalDrop = config.indicators
+      .filter(i => i.initial > 0)
+      .some(i => (finalIndicators[i.id] || 0) <= 25);
+
     const userMsg = `Analise a sessão completa do estudante abaixo e produza diagnóstico final estruturado.
 
 ARQUÉTIPO JOGADO: ${state.archetypeId}
 NÍVEL: ${state.level}
-TURNOS COMPLETADOS: ${state.turnLog.length} de ${config.levels[state.level].turns}
+TURNOS RESPONDIDOS: ${respondedCount} de ${config.levels[state.level].turns} configurados
 ENCERRAMENTO: ${state.earlyTermination ? state.earlyTermination.reason : 'completou'}
 
 INDICADORES FINAIS:
 ${config.indicators.map(i => `- ${i.name}: ${finalIndicators[i.id] || 0} / ${i.max}`).join('\n')}
 
 PERFIL DE ARTICULAÇÃO TURNO A TURNO: ${articulationProfile}
+
+MÉTRICAS COMPUTADAS (USE PARA APLICAR OS CRITÉRIOS OBJETIVOS DA RECOMENDAÇÃO):
+- Articulações plenas: ${articulatedCount} de ${respondedCount} turnos respondidos (${articulationPct}%)
+- Média dos indicadores (normalizada 0-100): ${indicatorAvg}
+- Indicador de risco em queda crítica (≤25)? ${riskInCriticalDrop ? 'SIM' : 'NÃO'}
 
 HISTÓRICO DOS TURNOS:
 ${historySummary}
@@ -929,17 +1056,49 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     "<concept_id>": "Frase explicando por que essa classificação, com referência ao turno (ex.: 'No turno 3 articulou ASPECTS corretamente'). Para 'nao_demonstrado', explique que o caso não dava oportunidade clara."
   },
   "strengths": [
-    { "turn": N, "description": "Frase específica e concreta sobre o que o estudante fez bem, citando literalmente o que articulou." }
+    { "turn": N, "description": "HABILIDADE CURTA no formato 'verbo no infinitivo + objeto'. Máximo 12 palavras. SEM citação literal entre aspas. SEM exemplos. Foco na habilidade demonstrada, não no que o estudante disse. Ex.: 'Calcular ASPECTS sistematicamente em janela de partes moles e óssea' / 'Identificar lesão tandem em angio-TC cervical e intracraniana' / 'Diferir revascularização carotídea com janela ótima D14-D21'." }
   ],
   "weaknesses": [
-    { "turn": N, "description": "Frase específica sobre o que faltou nesse turno. Termine com 'Reveja: <referência específica ao módulo>.'" }
+    { "turn": N, "description": "HABILIDADE FALTANTE no formato 'verbo no infinitivo + objeto'. Máximo 15 palavras. Termine com 'Reveja: <referência específica ao módulo>.' Ex.: 'Aplicar critérios DAWN/DEFUSE-3 de mismatch core-penumbra. Reveja: T04 · Aulas 1 e 3.'" }
   ],
   "next_step_recommendation": {
     "action": "subir_nivel" | "repetir_nivel" | "voltar_nivel" | "revisar_modulo",
-    "rationale": "Mensagem clara e direta ao estudante explicando a recomendação, em 2-3 frases."
+    "rationale": "Mensagem CONSTRUTIVA e DIRETA ao estudante em 2-3 frases. PRIMEIRA frase: nomeia o desempenho usando os números reais ('Você fechou ${articulationPct}% de articulações plenas e indicadores em média ${indicatorAvg}'). SEGUNDA frase: justifica a recomendação. TERCEIRA frase (opcional): sinaliza o que esperar no próximo passo. Sem jargão pedagógico, sem 'você precisa', tom de parceria. Para nível Júnior com bom desempenho: trate avançar como reconhecimento, não como cobrança."
   },
   "headline_metric": "Frase curta para o card LinkedIn, ex.: '12 de 15 conceitos do módulo dominados'"
-}`;
+}
+
+═══════════════════════════════════════════════════════════════════════
+CRITÉRIOS OBJETIVOS PARA next_step_recommendation.action (v1.2.10):
+═══════════════════════════════════════════════════════════════════════
+
+Aplique RIGOROSAMENTE estes critérios usando as métricas computadas acima:
+
+- subir_nivel: articulação plena ≥75% E média dos indicadores ≥80 E SEM risco em queda crítica
+  → Júnior recomenda Pleno; Pleno recomenda Sênior; Sênior recomenda "manter Sênior, novo caso"
+
+- repetir_nivel: articulação plena entre 50-74% E média dos indicadores 60-79 E SEM risco em queda crítica
+  → mesmo nível, novo caso, consolidar antes de avançar
+
+- voltar_nivel: VÁLIDO SÓ EM PLENO/SÊNIOR. articulação plena <50% OU média <60.
+  → Sênior recomenda Pleno; Pleno recomenda Júnior. NUNCA aplique em sessão Júnior.
+
+- revisar_modulo: articulação plena <50% E média <60, OU risco em queda crítica (≤25), EM QUALQUER NÍVEL
+  → revisar material do módulo antes de tentar de novo
+
+Verifique seu output contra estes critérios. Se as métricas dizem subir_nivel, NÃO escolha repetir_nivel "por cautela". Os critérios são objetivos; a recomendação é determinística.
+
+═══════════════════════════════════════════════════════════════════════
+REGRAS PARA strengths E weaknesses (v1.2.10):
+═══════════════════════════════════════════════════════════════════════
+
+- Cada item descreve UMA HABILIDADE (verbo no infinitivo + objeto), NÃO um episódio narrativo da sessão.
+- PROIBIDO incluir citação literal entre aspas do que o estudante escreveu — isso produz textos longos que não cabem no card LinkedIn.
+- PROIBIDO descrições com mais de 12 palavras em strengths, 15 em weaknesses.
+- PROIBIDO incluir item com turno N se aquele turno tem userResponse vazio (caso da abertura — turno 1 sem resposta). Filtre antes de incluir.
+- Cada habilidade deve ser reconhecível pelo estudante como algo concreto que ele fez (strengths) ou deixou de fazer (weaknesses).
+- Strengths: até 5 itens, ordenados pelo grau de excelência demonstrado.
+- Weaknesses: até 5 itens, ordenados pelo impacto pedagógico.`;
 
     const result = await callAPI({
       systemFixed: config.reference_content + '\n\n' + getArticulationRulesPromptBlock(),
@@ -947,6 +1106,32 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       messages: [{ role: 'user', content: userMsg }],
       maxTokens: 3000
     });
+
+    // ========================================================================
+    // FILTRO DEFENSIVO (v1.2.10): remove strengths/weaknesses que apontem
+    // para turnos sem userResponse. Mesmo com instrução no prompt, a IA
+    // pode escorregar e gerar weakness do tipo "turno 1 entregue vazio"
+    // — turno 1 É abertura, NÃO uma omissão do estudante.
+    // ========================================================================
+    if (result.parsed) {
+      const respondedTurnNumbers = new Set();
+      state.turnLog.forEach((t, idx) => {
+        if (t.userResponse) {
+          respondedTurnNumbers.add(idx + 1);
+        }
+      });
+
+      if (Array.isArray(result.parsed.strengths)) {
+        result.parsed.strengths = result.parsed.strengths.filter(s =>
+          respondedTurnNumbers.has(s.turn)
+        );
+      }
+      if (Array.isArray(result.parsed.weaknesses)) {
+        result.parsed.weaknesses = result.parsed.weaknesses.filter(w =>
+          respondedTurnNumbers.has(w.turn)
+        );
+      }
+    }
 
     return result.parsed;
   }
@@ -1152,8 +1337,30 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       </table>`;
     })();
 
-    // Transcript completo turno a turno
-    const transcriptHTML = turnLog.map((t, idx) => {
+    // ========================================================================
+    // TRANSCRIPT (v1.2.10) — contagem unificada com a experiência do estudante
+    // ========================================================================
+    // Antes da v1.2.10: turnLog era renderizado entrada-por-entrada. Como a
+    // entrada da abertura (userResponse=null) virava "Turno 01" e a primeira
+    // resposta do estudante virava "Turno 02", o Júnior aparecia como "5
+    // turnos" no relatório mesmo com apenas 4 respostas — contradizendo a
+    // experiência do estudante e o `turns: 4` do LEVEL_CONFIG.
+    //
+    // Agora: filtramos a abertura da iteração principal. A cena de abertura
+    // entra como bloco "Cena inicial" dentro do "Turno 01" (que é, do ponto
+    // de vista do estudante, a primeira vez que ele teve que decidir).
+    // ========================================================================
+    const openingEntry = turnLog.find(t => !t.userResponse);
+    const respondedEntries = turnLog.filter(t => t.userResponse);
+
+    const openingScenePrelude = openingEntry && openingEntry.assistantNarrative
+      ? `<div style="margin-bottom:14px;">
+          <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#475569;margin-bottom:6px;">Cena inicial</div>
+          <div style="padding:14px 16px;background:#FAF7F2;border-left:3px solid #94a3b8;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(openingEntry.assistantNarrative)}</div>
+        </div>`
+      : '';
+
+    const transcriptHTML = respondedEntries.map((t, idx) => {
       const turnNumber = idx + 1;
       const articulationLabel = {
         articulada: { label: 'Articulação plena', color: '#1D9E75' },
@@ -1162,12 +1369,13 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       };
       const artMeta = articulationLabel[t.articulation_class] || { label: '—', color: '#94a3b8' };
 
-      const userResponseHTML = t.userResponse
-        ? `<div style="margin-bottom:14px;">
-            <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#0074C7;margin-bottom:6px;">Sua resposta</div>
-            <div style="padding:14px 16px;background:#E8F4FF;border-left:3px solid #0074C7;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.userResponse)}</div>
-          </div>`
-        : '<div style="margin-bottom:14px;font-size:12px;color:#94a3b8;font-style:italic;">(Turno de abertura — sem resposta do estudante.)</div>';
+      // O primeiro turno respondido recebe a cena de abertura como prelúdio
+      const prelude = idx === 0 ? openingScenePrelude : '';
+
+      const userResponseHTML = `<div style="margin-bottom:14px;">
+          <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#0074C7;margin-bottom:6px;">Sua resposta</div>
+          <div style="padding:14px 16px;background:#E8F4FF;border-left:3px solid #0074C7;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.userResponse)}</div>
+        </div>`;
 
       const narrativeHTML = t.assistantNarrative
         ? `<div style="margin-bottom:14px;">
@@ -1188,6 +1396,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
           <h3 style="font-family:inherit;font-weight:800;font-size:22px;letter-spacing:-0.02em;color:#0a1628;margin:0;">Turno ${String(turnNumber).padStart(2, '0')}</h3>
           ${t.articulation_class ? `<span style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:${artMeta.color};">${artMeta.label}</span>` : ''}
         </div>
+        ${prelude}
         ${userResponseHTML}
         ${narrativeHTML}
         ${feedbackHTML}
@@ -1529,21 +1738,31 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     }
     cursorY += 12;
 
-    // ====== COMPETÊNCIAS DEMONSTRADAS ======
+    // ====== HABILIDADES DEMONSTRADAS (v1.2.10) ======
+    // Renomeado de "COMPETÊNCIAS DEMONSTRADAS" — competência é o que o módulo
+    // inteiro forma; habilidade é o que cada turno demonstra. O card mostra
+    // os strengths da sessão específica do estudante, portanto: habilidades.
     // Sem fallback fake: se diagnosis.strengths vier vazio, omite o bloco.
-    // TRAVA DE ALTURA: o bordão começa em y=870. As competências não podem
+    // TRAVA DE ALTURA: o bordão começa em y=870. As habilidades não podem
     // invadir essa área. Se o cursor passar de y=850, paramos.
     const strengths = (diagnosis && diagnosis.strengths) || [];
     const MAX_Y_COMPETENCIAS = 850;
     if (strengths.length > 0 && cursorY < MAX_Y_COMPETENCIAS) {
       ctx.fillStyle = '#0074C7';
       ctx.font = '600 12px "Montserrat", sans-serif';
-      _drawTrackedText(ctx, 'COMPETÊNCIAS DEMONSTRADAS', padL, cursorY, 2);
+      _drawTrackedText(ctx, 'HABILIDADES DEMONSTRADAS', padL, cursorY, 2);
       cursorY += 26;
 
+      // Truncamento em palavra completa (v1.2.10): nunca cortar no meio de
+      // palavra. Se o texto exceder 80 chars, encontra o último espaço antes
+      // do limite e corta ali. Limite reduzido de 105 para 80.
       const competencyItems = strengths.slice(0, 5).map(s => {
         let txt = (s.description || '').trim();
-        if (txt.length > 105) txt = txt.substring(0, 102) + '…';
+        if (txt.length > 80) {
+          const truncated = txt.substring(0, 80);
+          const lastSpace = truncated.lastIndexOf(' ');
+          txt = (lastSpace > 40 ? truncated.substring(0, lastSpace) : truncated) + '…';
+        }
         return txt;
       });
 
@@ -1573,7 +1792,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
       if (omittedCount > 0 && cursorY < MAX_Y_COMPETENCIAS) {
         ctx.fillStyle = '#94a3b8';
         ctx.font = 'italic 400 13px "Montserrat", sans-serif';
-        ctx.fillText('+ ' + omittedCount + ' outra' + (omittedCount > 1 ? 's' : '') + ' competência' + (omittedCount > 1 ? 's' : '') + ' no relatório completo', padL, cursorY);
+        ctx.fillText('+ ' + omittedCount + ' outra' + (omittedCount > 1 ? 's' : '') + ' habilidade' + (omittedCount > 1 ? 's' : '') + ' no relatório completo', padL, cursorY);
       }
     }
 
