@@ -1,11 +1,64 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.2.10
+ * ACTIVE IA — CORE v1.2.11
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * MUDANÇAS DA v1.2.10 PARA v1.2.11 (renumeração + escopo de weaknesses):
+ *
+ *   PROBLEMAS RELATADOS NA SESSÃO `teste de lima` (Júnior, cerebrovascular,
+ *   arquétipo de estenose carotídea sintomática):
+ *     - Strengths e justificativas do mapa conceitual citavam "turno 5"
+ *       mesmo o dossiê e a tela do jogo mostrando 4 turnos respondidos.
+ *       Causa: historySummary enviado ao generateFinalDiagnosis numerava
+ *       turnLog.map((t,i) => i+1), incluindo a abertura como turno 1.
+ *       A IA aprendia da numeração antiga e replicava no output.
+ *     - Texto LinkedIn afirmava "Em 5 turnos, conduzi..." mesmo o
+ *       estudante tendo respondido apenas 4 vezes. Mesma causa.
+ *     - Weaknesses cobravam conceitos FORA do arquétipo jogado:
+ *       "Diferenciar papel do cirurgião vascular em LVO/tandem" e
+ *       "Comentar ASPECTS na TC" foram apontados como pontos a revisitar
+ *       em um caso de estenose carotídea sintomática eletiva, onde
+ *       nenhum desses conceitos era pertinente. A IA estava demonstrando
+ *       erudição enciclopédica em vez de avaliar o que foi jogado.
+ *
+ *   MUDANÇAS ATÔMICAS:
+ *
+ *   1. RENUMERAÇÃO no historySummary do generateFinalDiagnosis: passa a
+ *      iterar apenas turnos com userResponse (4 entradas no Júnior, não
+ *      5), e numera "TURNO 1, 2, 3, 4" do ponto de vista do estudante.
+ *      A abertura entra como bloco separado "CENA DE ABERTURA (não conta
+ *      como turno do estudante)" antes do primeiro turno respondido,
+ *      pra IA ter o contexto narrativo sem confundir a numeração.
+ *
+ *   2. RESTRIÇÃO DE ESCOPO em weaknesses: nova regra no prompt:
+ *      weaknesses só nascem de conceitos relevantes ao arquétipo jogado.
+ *      Conceitos do módulo que não foram exercitados pelo caso vão
+ *      EXCLUSIVAMENTE para concept_map como "não demonstrado por
+ *      ausência de contexto" — JAMAIS para weaknesses. A IA recebe o
+ *      central_dilemma e o competency_tested do arquétipo no input para
+ *      saber o que é "in-scope".
+ *
+ *   3. FILTRO DEFENSIVO REFORÇADO: além de remover strengths/weaknesses
+ *      apontando para turno sem userResponse (v1.2.10), o filtro agora
+ *      também REMAPEIA o campo `turn` no output: se a IA escorregar e
+ *      mandar `turn: 5` em sessão de 4 respostas, o filtro converte
+ *      para `turn: 4` (último turno respondido). Isso garante que o
+ *      número exibido ao estudante sempre bate com a experiência dele.
+ *
+ *   4. TEXTO LINKEDIN: prompt de geração agora recebe `respondedCount`
+ *      explicitamente em vez de derivar de turnLog.length. Frase "Em N
+ *      turnos" usa o número que o estudante percebeu (4 no Júnior),
+ *      não o número interno do log (5).
+ *
+ *   5. Demais regras da v1.2.10 (calibração de teto do último turno,
+ *      critérios objetivos da recomendação, schema de strengths como
+ *      habilidade curta, transcript com abertura fundida, card com
+ *      "HABILIDADES DEMONSTRADAS" e truncamento por palavra completa)
+ *      ficam INTACTAS — todas validadas na sessão `teste de lima`.
  *
  * MUDANÇAS DA v1.2.9 PARA v1.2.10 (calibração, schema, contagem, card):
  *
@@ -263,7 +316,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.10';
+  const CORE_VERSION = '1.2.11';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -986,12 +1039,56 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
   async function generateFinalDiagnosis(state, config) {
     const conceptsList = config.concepts.map(c => `- ${c.id}: ${c.name} (${c.module_ref})`).join('\n');
 
-    const historySummary = state.turnLog.map((t, i) => {
+    // ========================================================================
+    // RENUMERAÇÃO DO HISTÓRICO (v1.2.11)
+    // ========================================================================
+    // Antes: state.turnLog.map((t,i) => 'TURNO ${i+1}'). Como turnLog[0] é a
+    // abertura (userResponse=null), o primeiro turno respondido virava
+    // "TURNO 2" no input da IA, e a última resposta no Júnior virava
+    // "TURNO 5" — produzindo strengths e citações com "turno 5" em sessão
+    // que o estudante percebe como 4 turnos.
+    // Agora: a abertura aparece como bloco SEPARADO (sem numeração). Os
+    // turnos respondidos são numerados 1, 2, 3, 4 do ponto de vista do
+    // estudante. A IA precisa usar essa mesma numeração nos strengths,
+    // weaknesses e justificativas conceituais.
+    // ========================================================================
+    const openingEntry = state.turnLog.find(t => !t.userResponse);
+    const respondedEntries = state.turnLog.filter(t => t.userResponse);
+
+    const openingBlock = openingEntry && openingEntry.assistantNarrative
+      ? `CENA DE ABERTURA (contexto narrativo — NÃO conta como turno do estudante e NÃO deve ser referenciada por número em strengths/weaknesses):
+${(openingEntry.assistantNarrative || '').substring(0, 400)}
+
+═══════════════════════════════════════════════════════════════════════
+`
+      : '';
+
+    const historySummary = openingBlock + respondedEntries.map((t, i) => {
       return `TURNO ${i + 1} (fase ${t.phase || '?'}, articulação ${t.articulation_class || '?'})
 Resposta do estudante: "${(t.userResponse || '').substring(0, 500)}"
 Sinais identificados: ${(t.case_state?.key_signals_identified || []).join(', ') || '—'}
 Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
     }).join('\n\n');
+
+    // ========================================================================
+    // CONTEXTO DO ARQUÉTIPO (v1.2.11) — para restringir escopo de weaknesses
+    // ========================================================================
+    // A IA precisa saber o que o ARQUÉTIPO testava para não cobrar conceitos
+    // de outros arquétipos. Em sessão de "estenose carotídea sintomática
+    // eletiva", cobrar ASPECTS (que é de AVC agudo em trombectomia) ou
+    // diferenciar papel do vascular em LVO/tandem é injusto: o caso não
+    // criou oportunidade para esses conceitos. Eles vão para concept_map
+    // como "não demonstrado por ausência de contexto", não para weaknesses.
+    const archetype = (config.archetypes || []).find(a => a.id === state.archetypeId);
+    const archetypeContext = archetype
+      ? `ARQUÉTIPO JOGADO — ESCOPO DA AVALIAÇÃO:
+- ID: ${archetype.id}
+- Descrição: ${archetype.seed_description || '—'}
+- Dilema central: ${archetype.central_dilemma || '—'}
+- Competência testada: ${archetype.competency_tested || '—'}
+- Caminho esperado: ${archetype.expected_path || '—'}
+- Red flags do arquétipo: ${(archetype.red_flags || []).join('; ') || '—'}`
+      : `ARQUÉTIPO: ${state.archetypeId} (descrição não disponível no config)`;
 
     const finalIndicators = state.indicators;
     const articulationProfile = state.articulationHistory.join(' → ');
@@ -1000,7 +1097,7 @@ Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
     // CÁLCULOS PRÉ-COMPUTADOS PARA OS CRITÉRIOS OBJETIVOS DA RECOMENDAÇÃO
     // (v1.2.10 — sem isso, a IA recomendava conservadoramente sempre)
     // ========================================================================
-    const respondedTurns = state.turnLog.filter(t => t.userResponse);
+    const respondedTurns = respondedEntries;
     const respondedCount = respondedTurns.length;
     const articulatedCount = state.articulationHistory.filter(c => c === 'articulada').length;
     const articulationPct = respondedCount > 0
@@ -1025,10 +1122,17 @@ Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
 
     const userMsg = `Analise a sessão completa do estudante abaixo e produza diagnóstico final estruturado.
 
-ARQUÉTIPO JOGADO: ${state.archetypeId}
+${archetypeContext}
+
 NÍVEL: ${state.level}
 TURNOS RESPONDIDOS: ${respondedCount} de ${config.levels[state.level].turns} configurados
 ENCERRAMENTO: ${state.earlyTermination ? state.earlyTermination.reason : 'completou'}
+
+⚠️ REGRA DE NUMERAÇÃO (v1.2.11):
+- O estudante percebe a sessão como ${respondedCount} turnos (1 a ${respondedCount}). A "cena de abertura" NÃO é contada como turno.
+- Em strengths.turn, weaknesses.turn e concept_justifications, use SEMPRE a numeração 1 a ${respondedCount}.
+- Mesmo que a IA internamente tenha visto a abertura como "primeira mensagem", o estudante chamou de "turno 1" a primeira vez que ELE respondeu. Respeite isso.
+- Se você se vê escrevendo "turno ${respondedCount + 1}" ou "turno 0", PARE — esses números NÃO EXISTEM para o estudante.
 
 INDICADORES FINAIS:
 ${config.indicators.map(i => `- ${i.name}: ${finalIndicators[i.id] || 0} / ${i.max}`).join('\n')}
@@ -1098,7 +1202,32 @@ REGRAS PARA strengths E weaknesses (v1.2.10):
 - PROIBIDO incluir item com turno N se aquele turno tem userResponse vazio (caso da abertura — turno 1 sem resposta). Filtre antes de incluir.
 - Cada habilidade deve ser reconhecível pelo estudante como algo concreto que ele fez (strengths) ou deixou de fazer (weaknesses).
 - Strengths: até 5 itens, ordenados pelo grau de excelência demonstrado.
-- Weaknesses: até 5 itens, ordenados pelo impacto pedagógico.`;
+- Weaknesses: até 5 itens, ordenados pelo impacto pedagógico.
+
+═══════════════════════════════════════════════════════════════════════
+RESTRIÇÃO DE ESCOPO PARA WEAKNESSES (v1.2.11):
+═══════════════════════════════════════════════════════════════════════
+
+REGRA INVIOLÁVEL: weaknesses só podem cobrir conceitos RELEVANTES ao arquétipo jogado (ver bloco "ARQUÉTIPO JOGADO — ESCOPO DA AVALIAÇÃO" no topo deste prompt).
+
+Conceito é RELEVANTE ao arquétipo quando:
+- Aparece no "Caminho esperado" do arquétipo, OU
+- É necessário para reconhecer/justificar uma das "Red flags" do arquétipo, OU
+- Faz parte da "Competência testada" descrita
+
+Conceito NÃO É RELEVANTE quando pertence a outros arquétipos do módulo (ex.: ASPECTS e DAWN/DEFUSE-3 pertencem ao arquétipo de LVO em janela de trombectomia, NÃO ao arquétipo de carotídea sintomática eletiva). Esses conceitos vão EXCLUSIVAMENTE para concept_map como "nao_demonstrado" com justificativa "caso não criou contexto" — NUNCA para weaknesses.
+
+EXEMPLO DE WEAKNESS PROIBIDO (em arquétipo de carotídea sintomática eletiva):
+- "Comentar ASPECTS na TC" — ASPECTS é de LVO aguda em janela, não de estenose eletiva
+- "Diferenciar papel do vascular em LVO/tandem" — LVO/tandem é outro arquétipo
+
+EXEMPLO DE WEAKNESS LEGÍTIMO (no mesmo arquétipo):
+- "Quantificar grau de estenose por NASCET/ECST formalmente" — está no caminho esperado
+- "Caracterizar morfologia da placa como decisão entre CEA e CAS" — está na competência testada
+
+Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checklist enciclopédico de tudo que o módulo cobre.
+
+═══════════════════════════════════════════════════════════════════════`;
 
     const result = await callAPI({
       systemFixed: config.reference_content + '\n\n' + getArticulationRulesPromptBlock(),
@@ -1108,28 +1237,45 @@ REGRAS PARA strengths E weaknesses (v1.2.10):
     });
 
     // ========================================================================
-    // FILTRO DEFENSIVO (v1.2.10): remove strengths/weaknesses que apontem
-    // para turnos sem userResponse. Mesmo com instrução no prompt, a IA
-    // pode escorregar e gerar weakness do tipo "turno 1 entregue vazio"
-    // — turno 1 É abertura, NÃO uma omissão do estudante.
+    // FILTRO DEFENSIVO (v1.2.11): valida e remapeia turn-numbers no output.
+    //
+    // A v1.2.11 mudou a numeração enviada à IA: turnos do estudante são
+    // 1 a respondedCount (não mais 2 a respondedCount+1 como na v1.2.10).
+    // O filtro precisa refletir essa mudança:
+    //   1. Range válido: 1 a respondedCount (inclusive).
+    //   2. Item com turn fora do range alto (ex.: turn=5 em sessão de 4):
+    //      tentamos REMAPEAR para o último turno (respondedCount). Cobre o
+    //      caso da IA escorregar e usar o índice antigo do turnLog.
+    //   3. Item com turn fora do range baixo (turn=0 ou negativo):
+    //      REMOVIDO (não é remapeável de forma segura).
+    //   4. Itens duplicados após remapeamento permanecem (o relatório
+    //      visualmente diferencia pela descrição).
     // ========================================================================
     if (result.parsed) {
-      const respondedTurnNumbers = new Set();
-      state.turnLog.forEach((t, idx) => {
-        if (t.userResponse) {
-          respondedTurnNumbers.add(idx + 1);
+      const respondedCountForFilter = respondedCount;
+
+      const remap = (item) => {
+        if (typeof item.turn !== 'number') return null;
+        if (item.turn >= 1 && item.turn <= respondedCountForFilter) return item;
+        if (item.turn > respondedCountForFilter) {
+          // Provável overshoot da IA: usou índice do turnLog (incluindo
+          // abertura) em vez da numeração do estudante. Remapeia para o
+          // último turno respondido.
+          return { ...item, turn: respondedCountForFilter };
         }
-      });
+        // turn === 0 ou negativo — remove
+        return null;
+      };
 
       if (Array.isArray(result.parsed.strengths)) {
-        result.parsed.strengths = result.parsed.strengths.filter(s =>
-          respondedTurnNumbers.has(s.turn)
-        );
+        result.parsed.strengths = result.parsed.strengths
+          .map(remap)
+          .filter(Boolean);
       }
       if (Array.isArray(result.parsed.weaknesses)) {
-        result.parsed.weaknesses = result.parsed.weaknesses.filter(w =>
-          respondedTurnNumbers.has(w.turn)
-        );
+        result.parsed.weaknesses = result.parsed.weaknesses
+          .map(remap)
+          .filter(Boolean);
       }
     }
 
@@ -1469,7 +1615,7 @@ REGRAS PARA strengths E weaknesses (v1.2.10):
     </div>
     <h1>${escapeHTML(config.name)}</h1>
     <div style="font-size:14px;color:#475569;margin-top:8px;line-height:1.6;">
-      <strong>${escapeHTML(state.userName || 'Estudante')}</strong> conduziu ${turnLog.length} ${turnLog.length === 1 ? 'turno' : 'turnos'} no nível ${config.levels[state.level].label}${moduleDiscipline ? ` · módulo de ${moduleDiscipline}` : ''}.<br>
+      <strong>${escapeHTML(state.userName || 'Estudante')}</strong> conduziu ${respondedEntries.length} ${respondedEntries.length === 1 ? 'turno' : 'turnos'} no nível ${config.levels[state.level].label}${moduleDiscipline ? ` · módulo de ${moduleDiscipline}` : ''}.<br>
       <span style="font-size:12px;color:#94a3b8;">Concluído em ${new Date(state.completedAt || Date.now()).toLocaleString('pt-BR')}</span>
     </div>
   </div>
@@ -1978,7 +2124,12 @@ REGRAS PARA strengths E weaknesses (v1.2.10):
     // === Parte 2: recapitulação personalizada (chamada à IA) ===
     let recapBlock = '';
     try {
-      const turnsPlayed = (state.turnLog || []).length || config.levels[state.level].turns;
+      // v1.2.11: usa turnos RESPONDIDOS pelo estudante (não turnLog.length,
+      // que inclui a abertura). turnLog tem totalTurns+1 entradas no fluxo
+      // normal — usar .length faz a IA escrever "Em 5 turnos" em sessão
+      // Júnior que é de 4 respostas.
+      const turnsPlayed = (state.turnLog || []).filter(t => t.userResponse).length
+        || config.levels[state.level].turns;
       const consultantsUsed = state.consultantsUsed || 0;
       const archetypeDescription = state.archetype?.seed_description || 'um caso clínico complexo';
       const role = config.role_context || 'profissional do domínio';
