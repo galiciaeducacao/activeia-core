@@ -1,0 +1,2031 @@
+/* ============================================================================
+   ACTIVE IA CORE v1.3 — Framework Visual
+   Sessão 3A: tokens, reset, base, telas estruturais, loading, dark mode
+   ============================================================================
+   
+   Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1.3/core.css
+   
+   Este arquivo carrega TODO o chassi visual da fábrica Active IA. O simulador
+   específico só precisa:
+   
+   1. Importar este arquivo no <head>
+   2. Importar Montserrat do Google Fonts (Gotham fica em fallback)
+   3. Opcionalmente importar um tokens.css próprio que sobrescreve
+      --metaphor-primary, --metaphor-accent, --metaphor-scene-accent
+   
+   Tudo o que está aqui é determinístico. Mudanças neste arquivo afetam
+   TODOS os simuladores que apontam para a v1.3.
+   
+   Sessão 3A cobre:
+   - Design tokens (paleta + tipografia + radius + spacing)
+   - Reset base
+   - Layout de telas (.screen)
+   - Botões e inputs base
+   - Boot screen (capa editorial navy)
+   - Daily block screen (mesma capa navy + relógio)
+   - Tutorial screen (4 telas com progress + examples)
+   - Name screen (input centrado)
+   - Level screen (3 cards de níveis)
+   - Loading overlay (esmaecido fullscreen)
+   - Error box
+   - Fullscreen toggle
+   - Dark mode (override de variáveis)
+   - Responsivo (breakpoints mobile)
+   
+   Sessões posteriores (3B, 3C) cobrem gamescreen e dossiê.
+   ============================================================================ */
+
+/* ============================================================================
+   1. DESIGN TOKENS
+   ============================================================================ */
+:root {
+  /* Paleta institucional Galícia (não muda por simulador) */
+  --gal-azul-escuro: #0074C7;
+  --gal-azul-medio: #00BDFF;
+  --gal-cyan-claro: #91F2FF;
+  --gal-dark-navy: #0a1628;
+  --gal-dark-navy-2: #102540;
+  --gal-bg: #FAF7F2;
+  --gal-bg-2: #F5F1EA;
+  --gal-card: #FFFFFF;
+  --gal-card-tint: #E8F4FF;
+  --gal-text: #0a1628;
+  --gal-text-2: #475569;
+  --gal-text-3: #94a3b8;
+  --gal-border: #E2E8F0;
+  --gal-success: #1D9E75;
+  --gal-warning: #BA7517;
+  --gal-danger: #A32D2D;
+  
+  /* Gradientes canônicos */
+  --gradient-gal: linear-gradient(90deg, #0074C7 0%, #00BDFF 50%, #91F2FF 100%);
+  --gradient-dark: linear-gradient(135deg, #0a1628 0%, #102540 100%);
+  
+  /* Tipografia única zero-serif (Lição 25) */
+  --font: 'Gotham', 'Montserrat', system-ui, -apple-system, sans-serif;
+  
+  /* Radius escalonado */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  
+  /* Spacing escalonado */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  
+  /* Indicadores (até 5 — override possível em tokens.css se mais cores) */
+  --ind-1: #0074C7;
+  --ind-2: #1D9E75;
+  --ind-3: #BA7517;
+  --ind-4: #7F77DD;
+  --ind-5: #A32D2D;
+  
+  /* === METÁFORA (defaults Galícia; cada simulador pode override) === */
+  --metaphor-primary: var(--gal-azul-escuro);
+  --metaphor-accent: var(--gal-azul-medio);
+  --metaphor-scene-accent: var(--gradient-gal);
+}
+
+[data-theme="dark"] {
+  --gal-bg: #0d1117;
+  --gal-bg-2: #161b22;
+  --gal-card: #161b22;
+  --gal-card-tint: #0d2137;
+  --gal-text: #e6edf3;
+  --gal-text-2: #8b949e;
+  --gal-text-3: #6e7681;
+  --gal-border: #30363d;
+}
+
+/* ============================================================================
+   2. RESET MINIMAL
+   ============================================================================ */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--gal-bg);
+  color: var(--gal-text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Fullscreen no iframe */
+:fullscreen,
+:fullscreen body { background: var(--gal-bg); }
+:-webkit-full-screen,
+:-webkit-full-screen body { background: var(--gal-bg); }
+
+a { color: var(--gal-azul-escuro); text-decoration: none; }
+
+/* ============================================================================
+   3. BOTÕES BASE
+   ============================================================================ */
+button {
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--gal-border);
+  background: var(--gal-card);
+  color: var(--gal-text);
+  padding: 11px 22px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  letter-spacing: 0.01em;
+}
+button:hover {
+  background: var(--gal-card-tint);
+  border-color: var(--gal-azul-escuro);
+}
+button:active { transform: scale(0.985); }
+
+button.primary {
+  background: var(--gal-azul-escuro);
+  color: #fff;
+  border-color: var(--gal-azul-escuro);
+  font-weight: 600;
+}
+button.primary:hover {
+  background: var(--gal-dark-navy);
+  border-color: var(--gal-dark-navy);
+}
+
+button.primary-dark {
+  background: #fff;
+  color: var(--gal-dark-navy);
+  border-color: #fff;
+  font-weight: 600;
+}
+button.primary-dark:hover {
+  background: var(--gal-cyan-claro);
+  border-color: var(--gal-cyan-claro);
+}
+
+button.ghost-dark {
+  background: transparent;
+  color: var(--gal-cyan-claro);
+  border-color: rgba(145, 242, 255, 0.35);
+  font-weight: 500;
+}
+button.ghost-dark:hover {
+  background: rgba(145, 242, 255, 0.08);
+  border-color: var(--gal-cyan-claro);
+}
+
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ============================================================================
+   4. INPUTS BASE
+   ============================================================================ */
+textarea,
+input[type="text"] {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  border: 1px solid var(--gal-border);
+  background: var(--gal-card);
+  color: var(--gal-text);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  width: 100%;
+  resize: vertical;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+textarea:focus,
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--gal-azul-escuro);
+  box-shadow: 0 0 0 3px rgba(0,116,199,0.12);
+}
+
+/* ============================================================================
+   5. APP CONTAINER (modo cinema)
+   ============================================================================ */
+.app {
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
+}
+
+/* ============================================================================
+   6. LAYOUT DE TELAS (.screen)
+   ============================================================================ */
+.screen { display: none; }
+.screen.active { display: block; animation: fadeIn 0.35s ease-out; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Barra-gradiente Galícia (top de seções importantes) */
+.gal-bar {
+  height: 4px;
+  background: var(--gradient-gal);
+  width: 100%;
+}
+
+/* ============================================================================
+   7. FULLSCREEN TOGGLE (canto superior direito)
+   ============================================================================ */
+.fullscreen-toggle {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(145,242,255,0.28);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.85);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  transition: all 0.18s;
+}
+.fullscreen-toggle:hover {
+  background: var(--gal-cyan-claro);
+  color: var(--gal-dark-navy);
+  border-color: var(--gal-cyan-claro);
+}
+.fullscreen-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.fullscreen-toggle .fs-label { display: inline-block; }
+
+@media (max-width: 640px) {
+  .fullscreen-toggle { display: none !important; }
+}
+
+/* Esconde em telas de fundo claro */
+body:not(:has(#screen-boot.active)):not(:has(#screen-daily.active)):not(:has(#screen-gameover.active)) .fullscreen-toggle {
+  display: none;
+}
+
+/* ============================================================================
+   8. BOOT SCREEN — capa editorial navy
+   Mesmo tratamento serve para #screen-daily
+   ============================================================================ */
+#screen-boot,
+#screen-daily {
+  background: var(--gradient-dark);
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+#screen-boot::before,
+#screen-daily::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--gradient-gal);
+  z-index: 2;
+}
+
+/* Glow sutil canto superior direito (assinatura insight card v3) */
+#screen-boot::after,
+#screen-daily::after {
+  content: '';
+  position: absolute;
+  top: -100px;
+  right: -100px;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(0,189,255,0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.boot-stage {
+  position: relative;
+  z-index: 1;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 12vh 48px 8vh;
+}
+
+.boot-eyebrow {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-cyan-claro);
+  letter-spacing: 2.5px;
+  margin-bottom: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.boot-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 32px;
+  height: 2px;
+  background: var(--gal-cyan-claro);
+}
+
+.boot-title {
+  font-family: var(--font);
+  font-size: clamp(36px, 5.5vw, 56px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: #fff;
+  margin: 0 0 24px;
+}
+.boot-title em {
+  font-style: italic;
+  color: var(--gal-azul-medio);
+  font-weight: 800;
+}
+
+.boot-sub {
+  font-family: var(--font);
+  font-size: clamp(15px, 1.6vw, 18px);
+  font-weight: 400;
+  color: rgba(255,255,255,0.72);
+  max-width: 680px;
+  line-height: 1.65;
+  margin: 0 0 40px;
+}
+
+.boot-actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================================
+   9. DAILY BLOCK SCREEN — usa boot-stage + adiciona relógio
+   ============================================================================ */
+.daily-card .clock {
+  font-family: var(--font);
+  font-size: clamp(48px, 7vw, 84px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: var(--gal-cyan-claro);
+  margin: 28px 0 10px;
+  line-height: 1;
+}
+.daily-card .clock-label {
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+}
+
+/* ============================================================================
+   10. EDITORIAL CARD — base usada por tutorial, name, level
+   ============================================================================ */
+#screen-tutorial,
+#screen-level,
+#screen-name {
+  min-height: 100vh;
+  position: relative;
+  padding: 64px 24px;
+}
+
+.editorial-card {
+  max-width: 820px;
+  margin: 0 auto;
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  border-radius: var(--r-lg);
+  padding: 48px 56px;
+  position: relative;
+  overflow: hidden;
+}
+.editorial-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--gradient-gal);
+}
+
+/* ============================================================================
+   11. TUTORIAL SCREEN
+   ============================================================================ */
+.tutorial-progress {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+.tutorial-dot {
+  flex: 1;
+  height: 3px;
+  background: var(--gal-border);
+  border-radius: 2px;
+  transition: background 0.3s;
+}
+.tutorial-dot.active { background: var(--gal-azul-escuro); }
+.tutorial-dot.done   { background: var(--gal-azul-medio); }
+
+.step-eyebrow {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-azul-escuro);
+  letter-spacing: 2px;
+  margin-bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.step-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 28px;
+  height: 2px;
+  background: var(--gal-azul-escuro);
+}
+
+.tutorial-step h2 {
+  font-family: var(--font);
+  font-size: clamp(26px, 3.2vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.018em;
+  line-height: 1.15;
+  margin: 0 0 18px;
+  color: var(--gal-text);
+}
+.tutorial-step h2 em {
+  font-style: italic;
+  color: var(--gal-azul-escuro);
+  font-weight: 800;
+}
+
+.tutorial-step p {
+  font-size: 15.5px;
+  color: var(--gal-text-2);
+  line-height: 1.72;
+  margin: 0 0 14px;
+}
+.tutorial-step strong {
+  font-weight: 700;
+  color: var(--gal-text);
+}
+
+.tutorial-step .example {
+  background: var(--gal-bg);
+  border-left: 3px solid var(--gal-azul-escuro);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  padding: 16px 20px;
+  margin: 20px 0;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.tutorial-step .example.weak {
+  background: rgba(163,45,45,0.04);
+  border-left-color: var(--gal-danger);
+}
+.tutorial-step .example .ex-label {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-azul-escuro);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.tutorial-step .example.weak .ex-label { color: var(--gal-danger); }
+
+.tutorial-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 1px solid var(--gal-border);
+}
+
+/* ============================================================================
+   12. LEVEL SCREEN — 3 cards de níveis
+   ============================================================================ */
+.level-eyebrow-block {
+  margin-bottom: 28px;
+}
+.level-eyebrow-block h2 {
+  font-family: var(--font);
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+}
+.level-eyebrow-block p {
+  font-size: 14.5px;
+  color: var(--gal-text-2);
+  margin: 0;
+  line-height: 1.65;
+}
+
+.level-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.level-card {
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  border-radius: var(--r-md);
+  padding: 28px 22px 24px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+.level-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--gal-border);
+  transition: background 0.2s;
+}
+.level-card:hover {
+  border-color: var(--gal-azul-escuro);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -16px rgba(10,22,40,0.18);
+}
+.level-card:hover::before { background: var(--gradient-gal); }
+
+.level-card .lvl-num {
+  font-family: var(--font);
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 0.9;
+  color: var(--gal-azul-escuro);
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.level-card .lvl-num-label {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 1.5px;
+  margin-bottom: 18px;
+}
+.level-card .lvl-name {
+  font-family: var(--font);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+.level-card .lvl-turns {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-azul-escuro);
+  letter-spacing: 1.5px;
+  margin-bottom: 12px;
+}
+.level-card .lvl-desc {
+  font-size: 12.5px;
+  color: var(--gal-text-2);
+  line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .level-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   13. NAME SCREEN — input centrado
+   ============================================================================ */
+#screen-name .editorial-card {
+  text-align: center;
+}
+.name-prompt {
+  font-family: var(--font);
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  margin: 14px 0 10px;
+}
+.name-sub {
+  font-size: 14px;
+  color: var(--gal-text-2);
+  margin: 0 0 28px;
+  line-height: 1.65;
+}
+#input-name {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 500;
+  padding: 16px 20px;
+}
+.name-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 24px;
+  gap: 12px;
+}
+
+/* ============================================================================
+   14. LOADING OVERLAY — esmaecido fullscreen
+   ============================================================================ */
+.loading-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 22, 40, 0.85);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: #fff;
+  backdrop-filter: blur(2px);
+}
+.loading-overlay.active { display: flex; }
+
+.loading-bar-wrap {
+  width: min(420px, 70vw);
+  height: 3px;
+  background: rgba(145,242,255,0.15);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 22px;
+  position: relative;
+}
+.loading-bar-fill {
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%;
+  height: 100%;
+  background: var(--gradient-gal);
+  border-radius: 2px;
+  animation: loadingSlide 1.6s ease-in-out infinite;
+}
+@keyframes loadingSlide {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+
+.loading-text {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2.5px;
+  color: var(--gal-cyan-claro);
+}
+
+/* ============================================================================
+   15. ERROR BOX
+   ============================================================================ */
+.error-box {
+  display: none;
+  background: rgba(163,45,45,0.08);
+  border: 1px solid rgba(163,45,45,0.25);
+  border-left: 3px solid var(--gal-danger);
+  border-radius: var(--r-md);
+  padding: 14px 18px;
+  margin-bottom: 12px;
+  font-size: 13.5px;
+  color: var(--gal-danger);
+}
+.error-box.active {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.error-box button {
+  background: transparent;
+  border: 1px solid currentColor;
+  color: var(--gal-danger);
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ============================================================================
+   16. RESPONSIVO GLOBAL (telas estruturais)
+   ============================================================================ */
+@media (max-width: 720px) {
+  .boot-stage { padding: 8vh 24px 6vh; }
+  .editorial-card { padding: 32px 24px; }
+  #screen-tutorial,
+  #screen-level,
+  #screen-name { padding: 36px 16px; }
+}
+
+/* ============================================================================
+   FIM DA SESSÃO 3A
+   ============================================================================ */
+
+
+/* ╔══════════════════════════════════════════════════════════════════════════╗
+   ║  SESSÃO 3B — GAMESCREEN                                                  ║
+   ║  Cobre: topbar navy, grid 3 colunas, monumento de turno, scene-card,    ║
+   ║         scene-feedback, scene-transition, pill-strip, hint-bar,          ║
+   ║         input-row, side-panel com indicadores e consultores             ║
+   ╚══════════════════════════════════════════════════════════════════════════╝ */
+
+/* ============================================================================
+   17. GAMESCREEN — container raiz
+   ============================================================================ */
+#screen-game {
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* ============================================================================
+   18. GAME TOPBAR — barra navy compacta no topo
+   ============================================================================ */
+.game-topbar {
+  background: var(--gradient-dark);
+  padding: 14px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+}
+.game-topbar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--gradient-gal);
+}
+
+.game-topbar .topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.game-topbar .topbar-mark {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--gal-cyan-claro);
+  padding-right: 16px;
+  border-right: 1px solid rgba(145,242,255,0.22);
+}
+.game-topbar .topbar-title {
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.01em;
+}
+
+.game-topbar .topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Pílulas de meta */
+.game-topbar .meta-pill {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.75);
+  padding: 4px 0;
+}
+
+/* Pílula da fase atual */
+.game-topbar .phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  padding: 6px 12px;
+  background: rgba(145,242,255,0.12);
+  color: var(--gal-cyan-claro);
+  border: 1px solid rgba(145,242,255,0.28);
+  border-radius: var(--r-sm);
+}
+
+/* Connection badge (dot + label) */
+.game-topbar .connection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: help;
+  transition: background 0.2s ease;
+}
+.game-topbar .connection-badge:hover {
+  background: rgba(255,255,255,0.07);
+}
+.game-topbar .conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gal-success);
+  flex-shrink: 0;
+}
+.game-topbar .conn-label {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  color: rgba(255,255,255,0.7);
+}
+.game-topbar .connection-badge[data-status="connecting"] .conn-dot {
+  background: var(--gal-warning);
+  animation: pulseDot 1.2s ease-in-out infinite;
+}
+.game-topbar .connection-badge[data-status="error"] .conn-dot {
+  background: var(--gal-danger);
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Botão de ícone na topbar (theme toggle, fullscreen) */
+.game-topbar .icon-btn-dark {
+  background: transparent;
+  border: 1px solid rgba(145,242,255,0.22);
+  color: rgba(255,255,255,0.7);
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.18s;
+  padding: 0;
+}
+.game-topbar .icon-btn-dark:hover {
+  background: rgba(145,242,255,0.12);
+  color: var(--gal-cyan-claro);
+  border-color: var(--gal-cyan-claro);
+}
+
+/* ============================================================================
+   19. GAME STAGE — área central
+   ============================================================================ */
+.game-stage {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+}
+
+/* ============================================================================
+   20. GAME GRID — 3 colunas (monumento + cena + lateral)
+   ============================================================================ */
+.game-grid {
+  display: grid;
+  grid-template-columns: 96px 1fr 280px;
+  gap: 24px;
+  align-items: start;
+}
+
+/* ============================================================================
+   21. TURN MONUMENT — coluna esquerda sticky com número gigante
+   ============================================================================ */
+.turn-monument {
+  position: sticky;
+  top: 28px;
+  text-align: right;
+}
+.turn-monument .turn-meta-block {
+  display: block;
+}
+.turn-monument .turn-eyebrow {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+.turn-monument .turn-num-group {
+  display: block;
+}
+.turn-monument .turn-num {
+  font-family: var(--font);
+  font-size: 72px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+  color: var(--metaphor-primary);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+.turn-monument .turn-total {
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gal-text-3);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.turn-monument .turn-phase {
+  font-family: var(--font);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--metaphor-primary);
+  letter-spacing: 2px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 2px solid var(--metaphor-primary);
+  display: inline-block;
+}
+
+/* ============================================================================
+   22. PILL STRIP — pílulas horizontais com marcadores contextuais
+   ============================================================================ */
+.pill-strip {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.pill {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  color: var(--gal-text-2);
+}
+.pill strong {
+  font-weight: 700;
+  color: var(--gal-text);
+  margin-right: 4px;
+}
+.pill.danger {
+  background: rgba(163,45,45,0.08);
+  color: var(--gal-danger);
+  border-color: rgba(163,45,45,0.22);
+}
+.pill.danger strong { color: var(--gal-danger); }
+.pill.warning {
+  background: rgba(186,117,23,0.08);
+  color: var(--gal-warning);
+  border-color: rgba(186,117,23,0.22);
+}
+.pill.warning strong { color: var(--gal-warning); }
+.pill.success {
+  background: rgba(29,158,117,0.08);
+  color: var(--gal-success);
+  border-color: rgba(29,158,117,0.22);
+}
+.pill.success strong { color: var(--gal-success); }
+
+/* ============================================================================
+   23. SCENE CARD — bloco editorial central
+   ============================================================================ */
+.scene-card {
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  border-radius: var(--r-lg);
+  padding: 36px 44px 32px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+.scene-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 4px;
+  background: var(--metaphor-scene-accent);
+}
+
+.scene-eyebrow {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 2px;
+  margin-bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.scene-eyebrow .sep {
+  display: inline-block;
+  width: 20px;
+  height: 1px;
+  background: var(--gal-text-3);
+}
+
+.scene-narrative {
+  font-family: var(--font);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.78;
+  color: var(--gal-text);
+  margin: 0 0 8px;
+}
+/* Drop cap na primeira letra */
+.scene-narrative::first-letter {
+  font-family: var(--font);
+  font-weight: 800;
+  font-size: 56px;
+  line-height: 1;
+  float: left;
+  margin: 6px 12px 0 0;
+  color: var(--metaphor-primary);
+  letter-spacing: -0.04em;
+}
+.scene-narrative em {
+  font-style: italic;
+  color: var(--metaphor-primary);
+  font-weight: 500;
+}
+.scene-narrative strong {
+  font-weight: 700;
+  color: var(--gal-text);
+}
+.scene-narrative p { margin: 0 0 16px; }
+.scene-narrative p:last-child { margin-bottom: 0; }
+
+/* ============================================================================
+   24. SCENE FEEDBACK — bloco navy editorial (passagem de cena)
+   ============================================================================ */
+.scene-feedback {
+  margin-top: 22px;
+  background: var(--gradient-dark);
+  color: #fff;
+  border-radius: var(--r-md);
+  padding: 22px 26px;
+  position: relative;
+  overflow: hidden;
+}
+.scene-feedback::before {
+  content: '';
+  position: absolute;
+  top: -80px; right: -80px;
+  width: 240px; height: 240px;
+  background: radial-gradient(circle, rgba(0,189,255,0.22) 0%, transparent 65%);
+  pointer-events: none;
+}
+.scene-feedback .lead {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-cyan-claro);
+  letter-spacing: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+}
+.scene-feedback .lead::before {
+  content: '';
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  background: var(--gal-cyan-claro);
+}
+/* Classificação de articulação (badge à direita do lead) */
+.scene-feedback .feedback-class {
+  display: inline-block;
+  font-family: var(--font);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  margin-left: 10px;
+  vertical-align: 2px;
+  position: relative;
+  z-index: 1;
+}
+.scene-feedback .feedback-class.articulada {
+  background: rgba(29,158,117,0.25);
+  color: #7DDFAF;
+}
+.scene-feedback .feedback-class.parcial {
+  background: rgba(186,117,23,0.25);
+  color: #F4C25C;
+}
+.scene-feedback .feedback-class.generica {
+  background: rgba(163,45,45,0.30);
+  color: #F4948B;
+}
+.scene-feedback .feedback-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.92);
+  position: relative;
+  z-index: 1;
+}
+.scene-feedback .feedback-body strong {
+  color: var(--gal-cyan-claro);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   25. SCENE TRANSITION — faixa fina entre cenas
+   ============================================================================ */
+.scene-transition {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 18px 0 6px;
+  padding: 8px 0;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 2.5px;
+  position: relative;
+}
+.scene-transition::before,
+.scene-transition::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--gal-border);
+}
+
+/* ============================================================================
+   26. HINT BAR — micro-coaching antes do textarea
+   ============================================================================ */
+.hint-bar {
+  background: var(--gal-card-tint);
+  border-left: 3px solid var(--metaphor-accent);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  padding: 12px 18px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--metaphor-primary);
+  line-height: 1.6;
+}
+.hint-bar strong { font-weight: 700; }
+[data-theme="dark"] .hint-bar { color: var(--gal-cyan-claro); }
+
+/* ============================================================================
+   27. INPUT ROW — textarea + botões de ação
+   ============================================================================ */
+.response-textarea {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  border: 1px solid var(--gal-border);
+  background: var(--gal-card);
+  color: var(--gal-text);
+  border-radius: var(--r-md);
+  padding: 16px 18px;
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.response-textarea:focus {
+  outline: none;
+  border-color: var(--gal-azul-escuro);
+  box-shadow: 0 0 0 3px rgba(0,116,199,0.12);
+}
+
+.input-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.input-hint {
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--gal-text-3);
+  letter-spacing: 0.3px;
+}
+.input-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ============================================================================
+   28. SIDE PANEL — coluna direita sticky
+   ============================================================================ */
+.side-panel {
+  position: sticky;
+  top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.panel-section {
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  border-radius: var(--r-md);
+  padding: 20px 20px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.panel-section::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--gradient-gal);
+  opacity: 0.7;
+}
+.panel-eyebrow {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 2px;
+  margin-bottom: 16px;
+}
+
+/* Texto livre dentro do panel (info do interlocutor, etc) */
+.panel-section .panel-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--gal-text-2);
+}
+.panel-section .panel-text strong {
+  color: var(--gal-text);
+  font-weight: 600;
+}
+.panel-section .panel-text + .panel-text {
+  margin-top: 10px;
+}
+
+/* ============================================================================
+   29. INDICADORES dentro do side-panel
+   ============================================================================ */
+.ind-row { margin-bottom: 16px; }
+.ind-row:last-child { margin-bottom: 0; }
+.ind-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.ind-name {
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--gal-text-2);
+  line-height: 1.3;
+}
+.ind-value {
+  font-family: var(--font);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--gal-text);
+  line-height: 1;
+}
+.ind-bar {
+  height: 3px;
+  background: var(--gal-bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ind-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Cores por índice (até 5) */
+.ind-row[data-ind="1"] .ind-bar-fill { background: var(--ind-1); }
+.ind-row[data-ind="2"] .ind-bar-fill { background: var(--ind-2); }
+.ind-row[data-ind="3"] .ind-bar-fill { background: var(--ind-3); }
+.ind-row[data-ind="4"] .ind-bar-fill { background: var(--ind-4); }
+.ind-row[data-ind="5"] .ind-bar-fill { background: var(--ind-5); }
+
+/* ============================================================================
+   30. CONSULTORES dentro do side-panel
+   ============================================================================ */
+.consult-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--gal-bg);
+  border: 1px solid var(--gal-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--gal-text);
+  transition: all 0.18s;
+  font-family: var(--font);
+}
+.consult-btn:last-of-type { margin-bottom: 0; }
+.consult-btn:hover:not(:disabled) {
+  background: var(--gal-card-tint);
+  border-color: var(--gal-azul-escuro);
+}
+.consult-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.consult-btn .name {
+  display: block;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+.consult-btn .role {
+  display: block;
+  font-family: var(--font);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 1.3px;
+  margin-top: 3px;
+}
+.consult-counter {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--gal-text-3);
+  letter-spacing: 0.5px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gal-border);
+}
+
+/* Alerta / risco destacado dentro do panel */
+.panel-section.alert {
+  background: rgba(186,117,23,0.06);
+  border-color: rgba(186,117,23,0.22);
+}
+.panel-section.alert::before {
+  background: var(--gal-warning);
+  opacity: 1;
+}
+.panel-section.alert .panel-eyebrow {
+  color: var(--gal-warning);
+}
+
+/* ============================================================================
+   31. STATUS STRIP — fallback mobile dos indicadores
+   ============================================================================ */
+.status-strip {
+  display: none; /* aparece só em mobile via media query */
+  background: var(--gal-card);
+  border-bottom: 1px solid var(--gal-border);
+  padding: 12px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  box-shadow: 0 1px 0 var(--gal-border);
+}
+.status-strip-inner {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.status-cell {
+  text-align: center;
+}
+.status-cell .sc-name {
+  font-family: var(--font);
+  font-size: 8.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.status-cell .sc-value {
+  font-family: var(--font);
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--gal-text);
+}
+
+/* ============================================================================
+   32. RESPONSIVO DA GAMESCREEN
+   ============================================================================ */
+@media (max-width: 1200px) {
+  .game-grid { grid-template-columns: 1fr 280px; }
+  .turn-monument { display: none; }
+  .game-stage { padding: 22px 24px 40px; }
+}
+
+@media (max-width: 900px) {
+  .game-grid { grid-template-columns: 1fr; }
+  .side-panel { display: none; }
+  .status-strip { display: block; }
+  .game-topbar { padding: 12px 18px; flex-wrap: wrap; gap: 10px; }
+  .game-topbar .topbar-meta { gap: 8px; }
+}
+
+@media (max-width: 600px) {
+  .game-stage { padding: 16px 14px 32px; }
+  .scene-card { padding: 24px 22px; }
+  .scene-narrative { font-size: 15px; }
+  .scene-narrative::first-letter { font-size: 44px; }
+  .scene-feedback { padding: 18px 20px; }
+  .game-topbar .topbar-mark { padding-right: 10px; }
+  .game-topbar .topbar-title { font-size: 12px; }
+}
+
+/* ============================================================================
+   FIM DA SESSÃO 3B — gamescreen completa
+   Próxima: 3C (dossiê final)
+   ============================================================================ */
+
+
+/* ╔══════════════════════════════════════════════════════════════════════════╗
+   ║  SESSÃO 3C — DOSSIÊ FINAL                                                ║
+   ║  Cobre: hero navy + headline-grid + dashboard-sections + go-ind-cards   ║
+   ║         + concept-table + points-list + recommendation-card +           ║
+   ║         export-actions                                                   ║
+   ╚══════════════════════════════════════════════════════════════════════════╝ */
+
+/* ============================================================================
+   33. DASHBOARD SCREEN — container raiz do dossiê
+   ============================================================================ */
+#screen-dashboard,
+#screen-gameover {
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* ============================================================================
+   34. DOSSIER HERO — header navy com gradiente + glow
+   ============================================================================ */
+.dossier-hero {
+  background: var(--gradient-dark);
+  color: #fff;
+  padding: 64px 48px 56px;
+  position: relative;
+  overflow: hidden;
+}
+.dossier-hero::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--gradient-gal);
+}
+.dossier-hero::after {
+  content: '';
+  position: absolute;
+  top: -150px;
+  right: -150px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(0,189,255,0.16) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.dossier-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+/* Header row: eyebrow à esquerda + selo de sessão à direita */
+.dossier-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.dossier-eyebrow {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-cyan-claro);
+  letter-spacing: 2.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.dossier-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 32px;
+  height: 2px;
+  background: var(--gal-cyan-claro);
+}
+
+.dossier-session-id {
+  text-align: right;
+}
+.dossier-session-id .dsid-label {
+  font-family: var(--font);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(145,242,255,0.6);
+  margin-bottom: 2px;
+}
+.dossier-session-id .dsid-value {
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gal-cyan-claro);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+
+/* Nome do estudante em clamp 36-56px com sobrenome em itálico cyan */
+.dossier-name {
+  font-family: var(--font);
+  font-size: clamp(36px, 5.5vw, 56px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: #fff;
+  margin: 0 0 12px;
+}
+.dossier-name .lastname {
+  font-style: italic;
+  color: var(--gal-azul-medio);
+  font-weight: 800;
+}
+.dossier-name em {
+  font-style: italic;
+  color: var(--gal-azul-medio);
+  font-weight: 800;
+}
+
+.dossier-sub {
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.7);
+  line-height: 1.6;
+  max-width: 720px;
+  margin: 0 0 32px;
+}
+
+/* ============================================================================
+   35. DOSSIER HEADLINE GRID — 3 métricas-headline
+   ============================================================================ */
+.dossier-headline-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(145,242,255,0.18);
+  border: 1px solid rgba(145,242,255,0.22);
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 900px;
+}
+.dhg-cell {
+  background: rgba(10,22,40,0.6);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 130px;
+}
+.dhg-label {
+  font-family: var(--font);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  color: var(--gal-cyan-claro);
+  margin-bottom: 8px;
+}
+.dhg-value {
+  font-family: var(--font);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #fff;
+  line-height: 1;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.dhg-value-text {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: #fff;
+}
+.dhg-sub {
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.65);
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .dossier-headline-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   36. DOSSIER BODY — container das dashboard-sections
+   ============================================================================ */
+.dossier-body {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 48px 64px;
+}
+
+.dashboard-section {
+  margin-top: 48px;
+  padding-top: 36px;
+  border-top: 1px solid var(--gal-border);
+}
+.dashboard-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.dashboard-section h3 {
+  font-family: var(--font);
+  font-size: clamp(22px, 2.6vw, 26px);
+  font-weight: 800;
+  letter-spacing: -0.018em;
+  margin: 0 0 6px;
+  color: var(--gal-text);
+}
+.dashboard-section .section-sub {
+  font-size: 13.5px;
+  color: var(--gal-text-2);
+  margin: 0 0 24px;
+  line-height: 1.6;
+}
+
+/* ============================================================================
+   37. INDICADORES FINAIS — grid de cards monumentais
+   ============================================================================ */
+.go-indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.go-ind-card {
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  border-radius: var(--r-md);
+  padding: 22px;
+  position: relative;
+  overflow: hidden;
+}
+.go-ind-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--ind-color, var(--gal-azul-escuro));
+}
+/* Cores por índice (até 5) */
+.go-ind-card[data-ind="1"] { --ind-color: var(--ind-1); }
+.go-ind-card[data-ind="2"] { --ind-color: var(--ind-2); }
+.go-ind-card[data-ind="3"] { --ind-color: var(--ind-3); }
+.go-ind-card[data-ind="4"] { --ind-color: var(--ind-4); }
+.go-ind-card[data-ind="5"] { --ind-color: var(--ind-5); }
+
+.go-ind-card .gi-name {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 1.5px;
+  margin-bottom: 12px;
+  line-height: 1.3;
+}
+.go-ind-card .gi-value {
+  font-family: var(--font);
+  font-size: 44px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+  color: var(--gal-text);
+}
+.go-ind-card .gi-max {
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gal-text-3);
+  margin-left: 4px;
+}
+.go-ind-card .gi-bar {
+  height: 3px;
+  background: var(--gal-bg);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 14px;
+}
+.go-ind-card .gi-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ind-color, var(--gal-azul-escuro));
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (max-width: 900px) {
+  .go-indicators-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .go-indicators-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   38. CONCEPT TABLE — mapa de domínio conceitual
+   ============================================================================ */
+.concept-table-wrap {
+  overflow-x: auto;
+}
+.concept-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.concept-table th {
+  text-align: left;
+  padding: 12px 14px;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-text-3);
+  letter-spacing: 1.8px;
+  border-bottom: 2px solid var(--gal-dark-navy);
+}
+.concept-table td {
+  padding: 14px 14px;
+  border-bottom: 1px solid var(--gal-border);
+  vertical-align: top;
+  line-height: 1.55;
+}
+.concept-table tr:last-child td { border-bottom: none; }
+.concept-table .c-name {
+  font-weight: 500;
+  color: var(--gal-text);
+}
+.concept-table .c-ref {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gal-text-3);
+  letter-spacing: 0.5px;
+}
+.concept-table .c-just {
+  font-size: 12.5px;
+  color: var(--gal-text-2);
+}
+
+.concept-status {
+  display: inline-block;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 4px 11px;
+  border-radius: var(--r-sm);
+  letter-spacing: 1.2px;
+  white-space: nowrap;
+}
+.concept-status.dominado {
+  background: rgba(29,158,117,0.12);
+  color: var(--gal-success);
+}
+.concept-status.parcial {
+  background: rgba(186,117,23,0.12);
+  color: var(--gal-warning);
+}
+.concept-status.fragil {
+  background: rgba(163,45,45,0.12);
+  color: var(--gal-danger);
+}
+.concept-status.nao_demonstrado {
+  background: rgba(148,163,184,0.18);
+  color: var(--gal-text-2);
+}
+
+/* ============================================================================
+   39. POINTS LIST — pontos fortes / fragilidades em grid 2x
+   ============================================================================ */
+.points-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.points-list li {
+  background: var(--gal-card);
+  border: 1px solid var(--gal-border);
+  border-left: 3px solid var(--gal-border);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  padding: 18px 22px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.points-list li.strength { border-left-color: var(--gal-success); }
+.points-list li.weakness { border-left-color: var(--gal-danger); }
+
+.points-list .turn-num-big {
+  font-family: var(--font);
+  font-size: 36px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+  flex-shrink: 0;
+  width: 56px;
+}
+.points-list li.strength .turn-num-big { color: var(--gal-success); }
+.points-list li.weakness .turn-num-big { color: var(--gal-danger); }
+
+.points-list .turn-content .turn-label {
+  font-family: var(--font);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  margin-bottom: 6px;
+}
+.points-list li.strength .turn-content .turn-label { color: var(--gal-success); }
+.points-list li.weakness .turn-content .turn-label { color: var(--gal-danger); }
+
+.points-list .desc {
+  font-size: 13.5px;
+  line-height: 1.62;
+  color: var(--gal-text);
+}
+
+.points-list .empty-state {
+  display: block;
+  grid-column: 1 / -1;
+  font-size: 13.5px;
+  color: var(--gal-text-2);
+  font-style: italic;
+  padding: 18px 22px;
+  background: var(--gal-bg);
+  border-radius: var(--r-md);
+}
+
+@media (max-width: 720px) {
+  .points-list { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   40. RECOMMENDATION CARD — bloco navy editorial (espelha scene-feedback)
+   ============================================================================ */
+.recommendation-card {
+  background: var(--gradient-dark);
+  color: #fff;
+  border-radius: var(--r-md);
+  padding: 28px 32px;
+  position: relative;
+  overflow: hidden;
+}
+.recommendation-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--gradient-gal);
+}
+.recommendation-card::after {
+  content: '';
+  position: absolute;
+  top: -100px;
+  right: -100px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(0,189,255,0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+.recommendation-card .rec-eyebrow {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--gal-cyan-claro);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+  position: relative;
+  z-index: 1;
+}
+.recommendation-card .rec-action {
+  font-family: var(--font);
+  font-size: clamp(22px, 2.6vw, 26px);
+  font-weight: 800;
+  letter-spacing: -0.018em;
+  color: #fff;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+  line-height: 1.2;
+}
+.recommendation-card .rec-rationale {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.85);
+  max-width: 760px;
+  position: relative;
+  z-index: 1;
+}
+.recommendation-card .rec-rationale strong {
+  color: var(--gal-cyan-claro);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   41. EXPORT ACTIONS — botões finais
+   ============================================================================ */
+.export-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 36px;
+  padding-top: 28px;
+  border-top: 1px solid var(--gal-border);
+}
+
+/* ============================================================================
+   42. RESPONSIVO DO DOSSIÊ
+   ============================================================================ */
+@media (max-width: 720px) {
+  .dossier-hero { padding: 40px 22px 36px; }
+  .dossier-body { padding: 32px 22px 48px; }
+  .dossier-name { font-size: clamp(28px, 8vw, 40px); }
+}
+
+/* ============================================================================
+   FIM DA SESSÃO 3C — dossiê final
+   ============================================================================ */
