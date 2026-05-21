@@ -383,7 +383,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.2.13';
+  const CORE_VERSION = '1.3.1';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -3198,6 +3198,893 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
   }
 
   // ==========================================================================
+  // ============================================================================
+  // ╔════════════════════════════════════════════════════════════════════════╗
+  // ║                                                                        ║
+  // ║   v1.3 — MÉTODOS DE RENDER DO FRAMEWORK VISUAL                         ║
+  // ║                                                                        ║
+  // ║   Adicionados na v1.3.0 (sem mexer em nada da v1.2.13).                ║
+  // ║   Para o simulador novo usar, ele importa o core.css junto com o JS    ║
+  // ║   e chama ActiveIA.scene.render(...), ActiveIA.dossier.render(...),    ║
+  // ║   ActiveIA.boot.render(...), etc.                                      ║
+  // ║                                                                        ║
+  // ║   Simuladores antigos (cerebrovascular v1.2.13) NÃO usam estes         ║
+  // ║   métodos e continuam funcionando exatamente igual.                    ║
+  // ║                                                                        ║
+  // ╚════════════════════════════════════════════════════════════════════════╝
+  // ============================================================================
+  // ==========================================================================
+
+  // --------------------------------------------------------------------------
+  // HELPER: mountIn(targetId, html)
+  // Substitui o conteúdo de um elemento por HTML novo, com fade-in.
+  // --------------------------------------------------------------------------
+  function _mountIn(targetId, html) {
+    const el = document.getElementById(targetId);
+    if (!el) {
+      console.error(`[ActiveIA v1.3] Elemento #${targetId} não encontrado no DOM.`);
+      return null;
+    }
+    el.innerHTML = html;
+    return el;
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPER: _activateScreen(screenId)
+  // Tira o .active de todas as .screen e adiciona em uma específica.
+  // --------------------------------------------------------------------------
+  function _activateScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const target = document.getElementById(screenId);
+    if (target) {
+      target.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } else {
+      console.error(`[ActiveIA v1.3] Tela #${screenId} não encontrada.`);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPER: _e(str)
+  // Alias curto para escapeHTML em templates.
+  // --------------------------------------------------------------------------
+  function _e(str) {
+    return escapeHTML(str == null ? '' : String(str));
+  }
+
+  // ==========================================================================
+  // ActiveIA.loading — tela esmaecida de IA conectando / consultando
+  // ==========================================================================
+
+  function _ensureLoadingOverlay() {
+    let el = document.getElementById('loading-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'loading-overlay';
+      el.className = 'loading-overlay';
+      el.innerHTML = `
+        <div class="loading-bar-wrap"><div class="loading-bar-fill"></div></div>
+        <div class="loading-text" id="loading-text">CONSULTANDO IA...</div>
+      `;
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  function loadingShow(message) {
+    const overlay = _ensureLoadingOverlay();
+    const text = document.getElementById('loading-text');
+    if (text) text.textContent = (message || 'CONSULTANDO IA...').toUpperCase();
+    overlay.classList.add('active');
+  }
+
+  function loadingHide() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) overlay.classList.remove('active');
+  }
+
+  function loadingMessage(message) {
+    const text = document.getElementById('loading-text');
+    if (text) text.textContent = (message || '').toUpperCase();
+  }
+
+  // ==========================================================================
+  // ActiveIA.boot — capa editorial navy
+  // ==========================================================================
+
+  function bootRender(opts) {
+    opts = opts || {};
+    const eyebrow = _e(opts.eyebrow || 'ACTIVE IA · GALÍCIA EDUCAÇÃO');
+    const title = opts.title || 'Active IA';      // pode conter <em>
+    const subtitle = _e(opts.subtitle || '');
+    const showResetBtn = opts.showResetBtn !== false;
+    const targetId = opts.targetId || 'activeia-root';
+
+    const html = `
+      <section id="screen-boot" class="screen active">
+        <div class="boot-stage">
+          <div class="boot-eyebrow">${eyebrow}</div>
+          <h1 class="boot-title">${title}</h1>
+          ${subtitle ? `<p class="boot-sub">${subtitle}</p>` : ''}
+          <div class="loading-bar-wrap" style="margin-top: 24px;">
+            <div class="loading-bar-fill"></div>
+          </div>
+          ${showResetBtn ? `
+            <div class="boot-actions" style="margin-top: 32px;">
+              <button class="ghost-dark" data-aia-action="reset-session">Recomeçar do zero</button>
+            </div>
+          ` : ''}
+        </div>
+      </section>
+    `;
+    return _mountIn(targetId, html);
+  }
+
+  // ==========================================================================
+  // ActiveIA.dailyblock — tela de bloqueio diário
+  // ==========================================================================
+
+  function dailyblockRender(opts) {
+    opts = opts || {};
+    const eyebrow = _e(opts.eyebrow || 'VOLTE AMANHÃ');
+    const title = opts.title || 'Sua sessão de <em>hoje</em> foi concluída';
+    const subtitle = _e(opts.subtitle || 'Para preservar a profundidade do aprendizado, o simulador libera uma sessão por dia. Volte amanhã.');
+    const targetId = opts.targetId || 'activeia-root';
+
+    const html = `
+      <section id="screen-daily" class="screen active">
+        <div class="boot-stage">
+          <div class="boot-eyebrow">${eyebrow}</div>
+          <h1 class="boot-title">${title}</h1>
+          <p class="boot-sub">${subtitle}</p>
+          <div class="daily-card">
+            <div class="clock" id="daily-clock">--:--:--</div>
+            <div class="clock-label">Tempo até nova sessão</div>
+          </div>
+        </div>
+      </section>
+    `;
+    const el = _mountIn(targetId, html);
+    _startDailyClockTick();
+    return el;
+  }
+
+  function _startDailyClockTick() {
+    const tick = () => {
+      const el = document.getElementById('daily-clock');
+      if (!el) return;
+      const now = new Date();
+      const end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      const diff = end - now;
+      const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+      const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+      const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+      el.textContent = `${h}:${m}:${s}`;
+    };
+    tick();
+    if (window._aiaDailyClockInterval) clearInterval(window._aiaDailyClockInterval);
+    window._aiaDailyClockInterval = setInterval(tick, 1000);
+  }
+
+  // ==========================================================================
+  // ActiveIA.tutorial — 4 telas de tutorial com nav
+  // ==========================================================================
+
+  let _tutorialState = { slides: [], current: 0, onFinish: null };
+
+  function tutorialRender(opts) {
+    opts = opts || {};
+    _tutorialState.slides = opts.slides || [];
+    _tutorialState.current = 0;
+    _tutorialState.onFinish = opts.onFinish || function(){};
+    _tutorialState.targetId = opts.targetId || 'activeia-root';
+
+    if (_tutorialState.slides.length === 0) {
+      console.error('[ActiveIA v1.3] tutorial.render chamado sem slides.');
+      return;
+    }
+    _renderTutorialSlide();
+  }
+
+  function _renderTutorialSlide() {
+    const idx = _tutorialState.current;
+    const slide = _tutorialState.slides[idx];
+    const total = _tutorialState.slides.length;
+    const eyebrow = _e(slide.eyebrow || `COMO FUNCIONA · ${idx + 1} DE ${total}`);
+    const title = slide.title || '';
+    const body = slide.body || '';
+    const examples = slide.examples || null;
+
+    const dots = _tutorialState.slides.map((_, i) => {
+      let cls = 'tutorial-dot';
+      if (i < idx) cls += ' done';
+      else if (i === idx) cls += ' active';
+      return `<span class="${cls}"></span>`;
+    }).join('');
+
+    let examplesHtml = '';
+    if (examples) {
+      if (examples.weak) {
+        examplesHtml += `
+          <div class="example weak">
+            <div class="ex-label">${_e(examples.weak.label || 'Resposta fraca')}</div>
+            <div>${_e(examples.weak.body)}</div>
+          </div>
+        `;
+      }
+      if (examples.strong) {
+        examplesHtml += `
+          <div class="example">
+            <div class="ex-label">${_e(examples.strong.label || 'Resposta forte')}</div>
+            <div>${_e(examples.strong.body)}</div>
+          </div>
+        `;
+      }
+    }
+
+    const isFirst = idx === 0;
+    const isLast = idx === total - 1;
+
+    const html = `
+      <section id="screen-tutorial" class="screen active">
+        <div class="editorial-card">
+          <div class="tutorial-progress">${dots}</div>
+          <div class="tutorial-step">
+            <span class="step-eyebrow">${eyebrow}</span>
+            <h2>${title}</h2>
+            ${body}
+            ${examplesHtml}
+          </div>
+          <div class="tutorial-nav">
+            <button data-aia-action="tutorial-back" ${isFirst ? 'style="visibility:hidden"' : ''}>← Voltar</button>
+            <button class="primary" data-aia-action="tutorial-next">
+              ${isLast ? 'Iniciar simulação →' : 'Próximo →'}
+            </button>
+          </div>
+        </div>
+      </section>
+    `;
+    _mountIn(_tutorialState.targetId, html);
+  }
+
+  function _tutorialNext() {
+    const total = _tutorialState.slides.length;
+    if (_tutorialState.current < total - 1) {
+      _tutorialState.current++;
+      _renderTutorialSlide();
+    } else {
+      _tutorialState.onFinish();
+    }
+  }
+
+  function _tutorialBack() {
+    if (_tutorialState.current > 0) {
+      _tutorialState.current--;
+      _renderTutorialSlide();
+    }
+  }
+
+  // ==========================================================================
+  // ActiveIA.namescreen — captura nome do estudante
+  // ==========================================================================
+
+  function namescreenRender(opts) {
+    opts = opts || {};
+    const eyebrow = _e(opts.eyebrow || 'IDENTIFICAÇÃO');
+    const prompt = _e(opts.prompt || 'Como devemos te chamar?');
+    const subtitle = _e(opts.subtitle || 'Seu nome aparece no card final compartilhável no LinkedIn.');
+    const placeholder = _e(opts.placeholder || 'Seu nome completo');
+    const targetId = opts.targetId || 'activeia-root';
+    const onConfirm = opts.onConfirm || function(){};
+    const onBack = opts.onBack || null;
+
+    const html = `
+      <section id="screen-name" class="screen active">
+        <div class="editorial-card">
+          <span class="step-eyebrow">${eyebrow}</span>
+          <h2 class="name-prompt">${prompt}</h2>
+          <p class="name-sub">${subtitle}</p>
+          <input type="text" id="input-name" placeholder="${placeholder}" autocomplete="name">
+          <div class="name-actions">
+            ${onBack ? `<button data-aia-action="name-back">← Voltar</button>` : '<span></span>'}
+            <button class="primary" data-aia-action="name-confirm">Continuar →</button>
+          </div>
+        </div>
+      </section>
+    `;
+    _mountIn(targetId, html);
+    // Foca o input automaticamente
+    setTimeout(() => {
+      const input = document.getElementById('input-name');
+      if (input) input.focus();
+    }, 100);
+    // Guarda os callbacks
+    _aiaCallbacks.nameConfirm = function() {
+      const input = document.getElementById('input-name');
+      const name = input ? input.value.trim() : '';
+      if (name.length < 2) {
+        if (input) input.focus();
+        return;
+      }
+      onConfirm(name);
+    };
+    _aiaCallbacks.nameBack = onBack;
+  }
+
+  // ==========================================================================
+  // ActiveIA.levelscreen — seleção de Júnior/Pleno/Sênior
+  // ==========================================================================
+
+  function levelscreenRender(opts) {
+    opts = opts || {};
+    const eyebrow = _e(opts.eyebrow || 'NÍVEL DE COMPLEXIDADE');
+    const title = _e(opts.title || 'Escolha como quer começar');
+    const subtitle = _e(opts.subtitle || 'Cada nível tem distribuição diferente de fases e tolerância à articulação genérica.');
+    const cards = opts.cards || {};
+    const targetId = opts.targetId || 'activeia-root';
+    const onSelect = opts.onSelect || function(){};
+
+    const levels = ['junior', 'pleno', 'senior'];
+    const defaults = {
+      junior: { num: '01', label: 'JÚNIOR', name: 'Caso direto', turns: '4 cenas', desc: 'Tolerante a respostas curtas.' },
+      pleno: { num: '02', label: 'PLENO', name: 'Caso com ambiguidade', turns: '6 cenas', desc: 'Exige articulação consistente.' },
+      senior: { num: '03', label: 'SÊNIOR', name: 'Caso complexo', turns: '9 cenas', desc: 'Avaliado com rigor de banca.' }
+    };
+
+    const cardsHtml = levels.map(lvl => {
+      const c = Object.assign({}, defaults[lvl], cards[lvl] || {});
+      return `
+        <button class="level-card" data-aia-action="level-select" data-level="${lvl}">
+          <div class="lvl-num">${_e(c.num)}</div>
+          <div class="lvl-num-label">${_e(c.label)}</div>
+          <div class="lvl-name">${_e(c.name)}</div>
+          <div class="lvl-turns">${_e(c.turns)}</div>
+          <div class="lvl-desc">${_e(c.desc)}</div>
+        </button>
+      `;
+    }).join('');
+
+    const html = `
+      <section id="screen-level" class="screen active">
+        <div class="editorial-card">
+          <div class="level-eyebrow-block">
+            <span class="step-eyebrow">${eyebrow}</span>
+            <h2>${title}</h2>
+            <p>${subtitle}</p>
+          </div>
+          <div class="level-grid">${cardsHtml}</div>
+        </div>
+      </section>
+    `;
+    _mountIn(targetId, html);
+    _aiaCallbacks.levelSelect = onSelect;
+  }
+
+  // ==========================================================================
+  // ActiveIA.scene — render da cena (gamescreen)
+  // ==========================================================================
+
+  function sceneRender(opts) {
+    opts = opts || {};
+    const targetId = opts.targetId || 'activeia-root';
+    const onSubmit = opts.onSubmit || function(){};
+    const onConsult = opts.onConsult || null;
+
+    // ---------- TOPBAR ----------
+    const topbar = opts.topbar || {};
+    const topbarMark = _e(topbar.mark || 'ACTIVE IA');
+    const topbarTitle = _e(topbar.title || '');
+    const phaseBadge = _e(topbar.phase || '');
+    const studentLabel = _e(topbar.student || '');
+    const connStatus = topbar.connectionStatus || 'connected';
+    const connLabel = _e(topbar.connectionLabel || (connStatus === 'connected' ? 'IA conectada' : connStatus === 'connecting' ? 'Conectando' : 'Sem conexão'));
+
+    // ---------- MONUMENT ----------
+    const mon = opts.monument || {};
+    const turnNum = String(mon.turnNumber || 1).padStart(2, '0');
+    const turnTotal = `de ${String(mon.totalTurns || 4).padStart(2, '0')}`;
+    const turnEyebrow = _e(mon.eyebrow || 'TURNO');
+    const phaseLabel = _e(mon.phaseLabel || '');
+
+    // ---------- PILL STRIP ----------
+    const pills = opts.pillStrip || [];
+    const pillsHtml = pills.length === 0 ? '' : `
+      <div class="pill-strip">
+        ${pills.map(p => {
+          const mod = p.modifier ? ' ' + _e(p.modifier) : '';
+          return `<span class="pill${mod}"><strong>${_e(p.label)}:</strong> ${_e(p.value)}</span>`;
+        }).join('')}
+      </div>
+    `;
+
+    // ---------- SCENE CARD (apenas a cena ativa) ----------
+    // v1.3.1: removida acumulação de cenas (sceneHistory). Cada chamada de
+    // scene.render substitui completamente o conteúdo. O feedback do turno
+    // anterior aparece DENTRO do scene-card da cena atual (como no vf), não
+    // como cena separada empilhada. O histórico fica disponível em appState
+    // e no relatório exportável.
+    const activeScene = opts.scene || {};
+    const activeSceneHtml = _renderSceneCard(activeScene, true);
+    // sceneHistory é silenciosamente ignorado (compat backward)
+
+    // ---------- HINT ----------
+    const hint = opts.hint || null;
+    const hintHtml = !hint ? '' : `
+      <div class="hint-bar">
+        ${hint.strong ? `<strong>${_e(hint.strong)}</strong> ` : ''}${_e(hint.body)}
+      </div>
+    `;
+
+    // ---------- INPUT ----------
+    const submitInput = opts.submit || {};
+    const placeholder = _e(submitInput.placeholder || 'Sua decisão...');
+    const submitLabel = _e(submitInput.submitLabel || 'Confirmar decisão →');
+    const showSaveDraft = submitInput.showSaveDraft !== false;
+    const inputHint = _e(submitInput.hint || 'Quanto mais articulada a decisão, maior a pontuação dos indicadores.');
+
+    const inputHtml = `
+      <textarea
+        id="response-textarea"
+        class="response-textarea"
+        placeholder="${placeholder}"></textarea>
+      <div class="input-row">
+        <span class="input-hint">${inputHint}</span>
+        <div class="input-actions">
+          ${showSaveDraft ? `<button data-aia-action="save-draft">Salvar rascunho</button>` : ''}
+          <button class="primary" data-aia-action="submit-response">${submitLabel}</button>
+        </div>
+      </div>
+    `;
+
+    // ---------- SIDE PANEL ----------
+    const sidePanel = opts.sidePanel || {};
+    const sections = sidePanel.sections || [];
+    const sidePanelHtml = sections.map(sec => _renderPanelSection(sec)).join('');
+
+    // ---------- MONTAGEM FINAL ----------
+    const html = `
+      <section id="screen-game" class="screen active">
+        <header class="game-topbar">
+          <div class="topbar-brand">
+            <span class="topbar-mark">${topbarMark}</span>
+            <span class="topbar-title">${topbarTitle}</span>
+          </div>
+          <div class="topbar-meta">
+            ${phaseBadge ? `<span class="phase-badge">${phaseBadge}</span>` : ''}
+            ${studentLabel ? `<span class="meta-pill">${studentLabel}</span>` : ''}
+            <span class="connection-badge" data-status="${_e(connStatus)}" title="Status da IA">
+              <span class="conn-dot"></span>
+              <span class="conn-label">${connLabel}</span>
+            </span>
+            <button class="icon-btn-dark" data-aia-action="theme-toggle" title="Alternar tema">☼</button>
+            <button class="icon-btn-dark" data-aia-action="fullscreen" title="Tela cheia">⛶</button>
+          </div>
+        </header>
+        <main class="game-stage">
+          <div class="game-grid">
+            <aside class="turn-monument">
+              <div class="turn-meta-block">
+                <div class="turn-eyebrow">${turnEyebrow}</div>
+                <div class="turn-num-group">
+                  <div class="turn-num">${turnNum}</div>
+                  <div class="turn-total">${turnTotal}</div>
+                </div>
+                ${phaseLabel ? `<div class="turn-phase">${phaseLabel}</div>` : ''}
+              </div>
+            </aside>
+            <section>
+              ${pillsHtml}
+              ${activeSceneHtml}
+              ${hintHtml}
+              ${inputHtml}
+            </section>
+            <aside class="side-panel">
+              ${sidePanelHtml}
+            </aside>
+          </div>
+        </main>
+      </section>
+    `;
+
+    _mountIn(targetId, html);
+    _aiaCallbacks.submitResponse = function() {
+      const ta = document.getElementById('response-textarea');
+      const text = ta ? ta.value.trim() : '';
+      onSubmit(text);
+    };
+    _aiaCallbacks.consult = onConsult;
+  }
+
+  function _renderSceneCard(sceneData, withFeedback) {
+    if (!sceneData || Object.keys(sceneData).length === 0) return '';
+    const eyebrow = _e(sceneData.eyebrow || '');
+    const eyebrowDetail = _e(sceneData.eyebrowDetail || '');
+    const narrative = sceneData.narrative || '';
+    const feedback = sceneData.feedback;
+
+    const eyebrowHtml = eyebrow ? `
+      <div class="scene-eyebrow">
+        ${eyebrow}${eyebrowDetail ? ` <span class="sep"></span> ${eyebrowDetail}` : ''}
+      </div>
+    ` : '';
+
+    let feedbackHtml = '';
+    if (withFeedback && feedback) {
+      const cls = _e(feedback.classification || '');
+      const classMap = {
+        articulada: 'Articulação plena',
+        parcial: 'Articulação parcial',
+        generica: 'Articulação genérica'
+      };
+      const classLabel = classMap[cls] || '';
+      feedbackHtml = `
+        <div class="scene-feedback">
+          <div class="lead">
+            ${_e(feedback.leadIn || 'O coordenador observa')}
+            ${cls ? `<span class="feedback-class ${cls}">${classLabel}</span>` : ''}
+          </div>
+          <div class="feedback-body">${feedback.body || ''}</div>
+        </div>
+      `;
+    }
+
+    return `
+      <article class="scene-card">
+        ${eyebrowHtml}
+        <div class="scene-narrative">${narrative}</div>
+        ${feedbackHtml}
+      </article>
+    `;
+  }
+
+  function _renderPanelSection(sec) {
+    const type = sec.type || 'text';
+    const title = _e(sec.title || '');
+    const isAlert = sec.alert === true;
+    const cls = 'panel-section' + (isAlert ? ' alert' : '');
+
+    let body = '';
+    if (type === 'text') {
+      const items = sec.items || [];
+      if (items.length > 0) {
+        body = items.map(it => {
+          return `<p class="panel-text">${it.label ? `<strong>${_e(it.label)}:</strong> ` : ''}${_e(it.value || it)}</p>`;
+        }).join('');
+      } else if (sec.body) {
+        body = `<div class="panel-text">${sec.body}</div>`;
+      }
+    } else if (type === 'indicators') {
+      const inds = sec.data || [];
+      body = inds.map((ind, i) => {
+        const pct = Math.max(0, Math.min(100, Number(ind.value) || 0));
+        return `
+          <div class="ind-row" data-ind="${i + 1}">
+            <div class="ind-row-head">
+              <span class="ind-name">${_e(ind.name)}</span>
+              <span class="ind-value">${pct}</span>
+            </div>
+            <div class="ind-bar"><div class="ind-bar-fill" style="width: ${pct}%"></div></div>
+          </div>
+        `;
+      }).join('');
+    } else if (type === 'consultants') {
+      const list = sec.list || [];
+      const counter = sec.counter || '';
+      body = list.map((c, i) => {
+        const disabled = c.disabled ? 'disabled' : '';
+        return `
+          <button class="consult-btn" data-aia-action="consult" data-consult-idx="${i}" ${disabled}>
+            <span class="name">${_e(c.name)}</span>
+            <span class="role">${_e(c.role)}</span>
+          </button>
+        `;
+      }).join('');
+      if (counter) {
+        body += `<div class="consult-counter">${_e(counter)}</div>`;
+      }
+    } else if (type === 'alert') {
+      body = `<div class="panel-text">${sec.body || ''}</div>`;
+    }
+
+    return `
+      <section class="${cls}">
+        ${title ? `<div class="panel-eyebrow">${title}</div>` : ''}
+        ${body}
+      </section>
+    `;
+  }
+
+  // ==========================================================================
+  // ActiveIA.dossier — render do dossiê final
+  // ==========================================================================
+
+  function dossierRender(diagnosis, config) {
+    config = config || {};
+    diagnosis = diagnosis || {};
+    const targetId = config.targetId || 'activeia-root';
+
+    // ---------- HERO ----------
+    const eyebrowText = _e(config.eyebrow || 'DOSSIÊ DE SESSÃO');
+    const sessionId = _e(diagnosis.sessionId || '');
+    const firstName = _e(diagnosis.firstName || '');
+    const lastName = _e(diagnosis.lastName || '');
+    const sub = diagnosis.subtitle || '';
+
+    // ---------- HEADLINE GRID (3 métricas) ----------
+    const headlines = diagnosis.headlineGrid || [];
+    const headlinesHtml = headlines.length === 0 ? '' : `
+      <div class="dossier-headline-grid">
+        ${headlines.map(h => {
+          let valueHtml = '';
+          if (h.valueText) {
+            valueHtml = `<div class="dhg-value-text">${_e(h.valueText)}</div>`;
+          } else {
+            const max = h.max ? `<span style="font-size: 22px; color: rgba(255,255,255,0.5); font-weight: 500;">/${_e(h.max)}</span>` : '';
+            valueHtml = `<div class="dhg-value">${_e(h.value)}${max}</div>`;
+          }
+          return `
+            <div class="dhg-cell">
+              <div class="dhg-label">${_e(h.label)}</div>
+              ${valueHtml}
+              <div class="dhg-sub">${_e(h.sub || '')}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    // ---------- INDICADORES FINAIS ----------
+    const indicators = diagnosis.indicators || [];
+    const indicatorsHtml = indicators.length === 0 ? '' : `
+      <section class="dashboard-section">
+        <h3>Indicadores finais</h3>
+        <p class="section-sub">Pontuação acumulada ao longo da sessão. Limite teórico: 100 por indicador.</p>
+        <div class="go-indicators-grid">
+          ${indicators.map((ind, i) => {
+            const pct = Math.max(0, Math.min(100, Number(ind.value) || 0));
+            return `
+              <div class="go-ind-card" data-ind="${i + 1}">
+                <div class="gi-name">${_e(ind.name)}</div>
+                <div class="gi-value">${pct}<span class="gi-max">/100</span></div>
+                <div class="gi-bar"><div class="gi-bar-fill" style="width: ${pct}%"></div></div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </section>
+    `;
+
+    // ---------- MAPA DE DOMÍNIO CONCEITUAL ----------
+    const concepts = diagnosis.conceptMap || [];
+    const conceptsHtml = concepts.length === 0 ? '' : `
+      <section class="dashboard-section">
+        <h3>Mapa de domínio conceitual</h3>
+        <p class="section-sub">Conceitos do módulo testados ou demonstrados nesta sessão.</p>
+        <div class="concept-table-wrap">
+          <table class="concept-table">
+            <thead>
+              <tr>
+                <th style="width: 28%;">Conceito</th>
+                <th style="width: 16%;">Referência</th>
+                <th style="width: 14%;">Estado</th>
+                <th>Justificativa</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${concepts.map(c => `
+                <tr>
+                  <td class="c-name">${_e(c.name)}</td>
+                  <td class="c-ref">${_e(c.reference || '')}</td>
+                  <td><span class="concept-status ${_e(c.status)}">${_e(_conceptStatusLabel(c.status))}</span></td>
+                  <td class="c-just">${_e(c.justification || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+
+    // ---------- PONTOS FORTES ----------
+    const strengths = diagnosis.strengths || [];
+    const strengthsHtml = `
+      <section class="dashboard-section">
+        <h3>Pontos fortes</h3>
+        <p class="section-sub">Decisões em que sua articulação superou o esperado para o nível.</p>
+        ${strengths.length === 0
+          ? `<ul class="points-list"><li class="empty-state">Nenhum ponto forte destacado nesta sessão.</li></ul>`
+          : `<ul class="points-list">
+              ${strengths.map(s => `
+                <li class="strength">
+                  <div class="turn-num-big">${String(s.turn).padStart(2, '0')}</div>
+                  <div class="turn-content">
+                    <div class="turn-label">${_e(s.label || '')}</div>
+                    <div class="desc">${_e(s.description || '')}</div>
+                  </div>
+                </li>
+              `).join('')}
+            </ul>`
+        }
+      </section>
+    `;
+
+    // ---------- PONTOS A REVISITAR ----------
+    const weaknesses = diagnosis.weaknesses || [];
+    const weaknessesHtml = `
+      <section class="dashboard-section">
+        <h3>Pontos a revisitar</h3>
+        <p class="section-sub">Decisões em que faltou articulação ou aplicação de conceito específico.</p>
+        ${weaknesses.length === 0
+          ? `<ul class="points-list"><li class="empty-state">Nenhum ponto a revisitar nesta sessão — desempenho consistente.</li></ul>`
+          : `<ul class="points-list">
+              ${weaknesses.map(w => `
+                <li class="weakness">
+                  <div class="turn-num-big">${String(w.turn).padStart(2, '0')}</div>
+                  <div class="turn-content">
+                    <div class="turn-label">${_e(w.label || '')}</div>
+                    <div class="desc">${_e(w.description || '')}</div>
+                  </div>
+                </li>
+              `).join('')}
+            </ul>`
+        }
+      </section>
+    `;
+
+    // ---------- RECOMENDAÇÃO ----------
+    const rec = diagnosis.recommendation || {};
+    const recHtml = `
+      <section class="dashboard-section">
+        <h3>Recomendação de próximo passo</h3>
+        <p class="section-sub">Baseada no seu desempenho nesta sessão.</p>
+        <div class="recommendation-card">
+          <div class="rec-eyebrow">PRÓXIMO PASSO RECOMENDADO</div>
+          <div class="rec-action">${_e(rec.action || 'Próxima ação')}</div>
+          <div class="rec-rationale">${rec.rationale || ''}</div>
+        </div>
+        <div class="export-actions">
+          <button class="primary" data-aia-action="export-report">📄 Baixar relatório completo</button>
+          <button data-aia-action="share-linkedin">🔗 Compartilhar no LinkedIn</button>
+          <button data-aia-action="new-session">↻ Nova sessão</button>
+        </div>
+      </section>
+    `;
+
+    // ---------- MONTAGEM ----------
+    const html = `
+      <section id="screen-dashboard" class="screen active">
+        <header class="dossier-hero">
+          <div class="dossier-inner">
+            <div class="dossier-header-row">
+              <div class="dossier-eyebrow">${eyebrowText}</div>
+              ${sessionId ? `
+                <div class="dossier-session-id">
+                  <div class="dsid-label">SESSÃO</div>
+                  <div class="dsid-value">${sessionId}</div>
+                </div>
+              ` : ''}
+            </div>
+            <h1 class="dossier-name">${firstName}${lastName ? ` <span class="lastname">${lastName}</span>` : ''}</h1>
+            ${sub ? `<p class="dossier-sub">${sub}</p>` : ''}
+            ${headlinesHtml}
+          </div>
+        </header>
+        <main class="dossier-body">
+          ${indicatorsHtml}
+          ${conceptsHtml}
+          ${strengthsHtml}
+          ${weaknessesHtml}
+          ${recHtml}
+        </main>
+      </section>
+    `;
+    _mountIn(targetId, html);
+  }
+
+  function _conceptStatusLabel(status) {
+    const map = {
+      dominado: 'Dominado',
+      parcial: 'Parcial',
+      fragil: 'Frágil',
+      nao_demonstrado: 'Não demonstrado'
+    };
+    return map[status] || status || '';
+  }
+
+  // ==========================================================================
+  // ActiveIA.transitions — utilidades de transição entre telas
+  // ==========================================================================
+
+  function transitionsNext(opts) {
+    opts = opts || {};
+    if (opts.screenId) _activateScreen(opts.screenId);
+  }
+
+  // ==========================================================================
+  // GLOBAL EVENT DELEGATION (clicks via data-aia-action)
+  // ==========================================================================
+
+  const _aiaCallbacks = {};
+
+  function _initEventDelegation() {
+    if (window._aiaDelegationReady) return;
+    document.addEventListener('click', function(e) {
+      const target = e.target.closest('[data-aia-action]');
+      if (!target) return;
+      const action = target.getAttribute('data-aia-action');
+      _handleAction(action, target, e);
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'input-name') {
+        e.preventDefault();
+        _handleAction('name-confirm', document.activeElement, e);
+      }
+    });
+    window._aiaDelegationReady = true;
+  }
+
+  function _handleAction(action, target, evt) {
+    switch (action) {
+      case 'tutorial-next': _tutorialNext(); break;
+      case 'tutorial-back': _tutorialBack(); break;
+      case 'name-confirm': if (_aiaCallbacks.nameConfirm) _aiaCallbacks.nameConfirm(); break;
+      case 'name-back': if (_aiaCallbacks.nameBack) _aiaCallbacks.nameBack(); break;
+      case 'level-select': {
+        const lvl = target.getAttribute('data-level');
+        if (_aiaCallbacks.levelSelect) _aiaCallbacks.levelSelect(lvl);
+        break;
+      }
+      case 'submit-response': if (_aiaCallbacks.submitResponse) _aiaCallbacks.submitResponse(); break;
+      case 'consult': {
+        const idx = parseInt(target.getAttribute('data-consult-idx'), 10);
+        if (_aiaCallbacks.consult) _aiaCallbacks.consult(idx);
+        break;
+      }
+      case 'theme-toggle': {
+        const cur = document.documentElement.getAttribute('data-theme');
+        document.documentElement.setAttribute('data-theme', cur === 'dark' ? '' : 'dark');
+        break;
+      }
+      case 'fullscreen': {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen().catch(() => {});
+        break;
+      }
+      case 'reset-session':
+      case 'new-session':
+      case 'export-report':
+      case 'share-linkedin':
+      case 'save-draft': {
+        const cb = _aiaCallbacks[action.replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
+        if (cb) cb();
+        else console.log(`[ActiveIA v1.3] Ação "${action}" sem callback registrado. Use ActiveIA.on('${action}', fn).`);
+        break;
+      }
+      default:
+        console.log(`[ActiveIA v1.3] Ação desconhecida: ${action}`);
+    }
+  }
+
+  function aiaOn(action, callback) {
+    const key = action.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    _aiaCallbacks[key] = callback;
+  }
+
+  // Inicializa o delegation no boot do core
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _initEventDelegation);
+    } else {
+      _initEventDelegation();
+    }
+  }
+
+  // ==========================================================================
+  // FIM DO BLOCO v1.3
+  // ==========================================================================
+
+  // ==========================================================================
   // EXPORT PÚBLICO
   // ==========================================================================
 
@@ -3252,7 +4139,25 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     },
     utils: {
       escapeHTML: escapeHTML
-    }
+    },
+
+    // ========================================================================
+    // v1.3 — Métodos de render do framework visual
+    // ========================================================================
+    loading: {
+      show: loadingShow,
+      hide: loadingHide,
+      message: loadingMessage
+    },
+    boot: { render: bootRender },
+    dailyblock: { render: dailyblockRender },
+    tutorial: { render: tutorialRender },
+    namescreen: { render: namescreenRender },
+    levelscreen: { render: levelscreenRender },
+    scene: { render: sceneRender },
+    dossier: { render: dossierRender },
+    transitions: { next: transitionsNext },
+    on: aiaOn
   };
 
   console.log(`[ActiveIA] Core v${CORE_VERSION} carregado`);
