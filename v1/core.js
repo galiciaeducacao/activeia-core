@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.3.1
+ * ACTIVE IA — CORE v1.3.2
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
@@ -383,7 +383,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.3.1';
+  const CORE_VERSION = '1.3.2';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -3629,13 +3629,14 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
         class="response-textarea"
         placeholder="${placeholder}"></textarea>
       <div class="input-row">
-        <span class="input-hint">${inputHint}</span>
+        <span class="input-hint">${inputHint} <span class="input-hint-shortcut">(Ctrl+Enter envia)</span></span>
         <div class="input-actions">
-          ${showSaveDraft ? `<button data-aia-action="save-draft">Salvar rascunho</button>` : ''}
           <button class="primary" data-aia-action="submit-response">${submitLabel}</button>
         </div>
       </div>
     `;
+    // v1.3.2: 'Salvar rascunho' removido — sessão já salva automaticamente.
+    // Ctrl+Enter habilitado via _initEventDelegation; dica visual incluída.
 
     // ---------- SIDE PANEL ----------
     const sidePanel = opts.sidePanel || {};
@@ -4016,9 +4017,16 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
       _handleAction(action, target, e);
     });
     document.addEventListener('keydown', function(e) {
+      // Enter no input de nome → confirma nome
       if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'input-name') {
         e.preventDefault();
         _handleAction('name-confirm', document.activeElement, e);
+      }
+      // Ctrl+Enter (ou Cmd+Enter no Mac) no textarea de resposta → submete
+      // v1.3.2: substitui o botão "Salvar rascunho" como aceleração de UX
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && document.activeElement && document.activeElement.id === 'response-textarea') {
+        e.preventDefault();
+        _handleAction('submit-response', document.activeElement, e);
       }
     });
     window._aiaDelegationReady = true;
