@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.3.2
+ * ACTIVE IA — CORE v1.4.0
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
