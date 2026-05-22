@@ -1256,6 +1256,13 @@ body:not(:has(#screen-boot.active)):not(:has(#screen-daily.active)):not(:has(#sc
   color: var(--gal-text-3);
   letter-spacing: 0.3px;
 }
+.input-hint-shortcut {
+  /* v1.3.2: dica de atalho Ctrl+Enter */
+  opacity: 0.55;
+  font-size: 10px;
+  margin-left: 6px;
+  letter-spacing: 0.2px;
+}
 .input-actions {
   display: flex;
   gap: 10px;
