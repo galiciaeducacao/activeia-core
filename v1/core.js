@@ -383,7 +383,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.3.2';
+  const CORE_VERSION = '1.4.0';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -595,7 +595,16 @@
   // externa indisponível, JSON corrompido e técnico.
   // ==========================================================================
 
-  async function callAPI({ systemFixed, systemDynamic, messages, maxTokens }) {
+  async function callAPI({ systemFixed, systemDynamic, messages, maxTokens, config }) {
+    // GUARD PREVENTIVO (v1.4.0): detecta abuso na última mensagem do usuário
+    // antes de chamar a IA. Retorna resposta sintética se positivo.
+    // Skip se config não fornecido (retrocompatibilidade com simuladores que
+    // ainda não passam config — A Mesa fix-6 e cerebrovascular vf).
+    if (config) {
+      const guardResult = _runPreflightGuards(messages, config);
+      if (guardResult) return guardResult;
+    }
+
     const systemArray = [
       { type: 'text', text: systemFixed, cache_control: { type: 'ephemeral' } },
       { type: 'text', text: systemDynamic || '' }
@@ -809,6 +818,170 @@
       cta: spec.cta,
       technicalDetail: error && error.message ? error.message : 'Erro desconhecido'
     };
+  }
+
+  // ==========================================================================
+  // SEÇÃO 4C — GUARDS (v1.4.0)
+  //
+  // Detector universal de conduta inadequada (abuso verbal, agressão, discurso
+  // de ódio). Roda PREVENTIVAMENTE antes de qualquer chamada à IA. Se
+  // detecta, retorna resposta sintética sem consumir token e dispara hard
+  // fail por CONDUTA (não por desempenho) — atravessa a blindagem Júnior.
+  //
+  // Implementa as 5 decisões da spec v1.4.0:
+  //   1. Detector híbrido: regex preventivo (esta seção) + flag JSON reativo
+  //      (a IA pode setar conduct_violation: true na resposta)
+  //   2. Cobertura: só texto do estudante (role: 'user' nas messages)
+  //   3. Momento: só preventivo (antes do fetch)
+  //   4. Idiomas: PT-BR + EN básico
+  //   5. Localização: hook automático em callAPI (simulador não chama explicitamente)
+  //
+  // Opt-out por simulador: SIMULATOR_CONFIG.disableAbuseGuard: true (default false)
+  // ==========================================================================
+
+  const _abusePatternsPTBR = [
+    // Palavrões direcionados / xingamentos PT-BR
+    /\bv(a|ai|ou|amos|ao|ão)\s*(se|te)\s*f[ouy]?d(er|a|e|eu)\b/i,
+    /\bv(a|ai|ou|amos|ao|ão)\s*tomar\s*(no\s*c[uú]|naquele|na\s*bunda)/i,
+    /\b(filho|filha)\s*d[ae]\s*p[uú]ta\b/i,
+    /\bcaralh[ou]\b/i,
+    /\bporra\b/i,
+    /\bmerd[ao]\b/i,
+    /\bcuz[aã]o\b/i,
+    /\bbost[ao]\b/i,
+    /\bidiota\b|\bimbecil\b|\bretardad[ao]\b|\bdebil[oó]ide\b|\bbabaca\b|\bbocó\b/i,
+    /\bvagabund[ao]\b|\bsafad[ao]\b|\bdesgraçad[ao]\b/i,
+    /\bcal[aá]\s*a?\s*boca\b/i,
+    /\bv(a|ai|ou|amos|ao|ão)\s*pr[oa]?\s*infern[ou]\b/i,
+    // Ameaças PT-BR
+    /\b(te\s*mato|vou\s*te\s*matar|vou\s*acabar\s*com\s*voce|quero\s*te\s*ver\s*morto)\b/i,
+    // Discurso de ódio PT-BR
+    /\b(viad[oa]|biba|bicha|sapatão|traveco)\b/i,
+    /\b(macaco|preto\s*safado|crioul[oa])\b/i,
+    // Abreviações comuns
+    /\bfd[ps]\b/i,
+    /\bvtnc\b/i,
+    /\bpqp\b/i
+  ];
+
+  const _abusePatternsEN = [
+    /\bfuck\s*(you|off|yourself)\b/i,
+    /\bgo\s*to\s*hell\b/i,
+    /\bbitch\b/i,
+    /\bbastard\b/i,
+    /\b(stfu|shut\s*the\s*fuck\s*up)\b/i,
+    /\bmotherfucker\b/i,
+    /\bdickhead\b/i,
+    /\basshole\b/i,
+    /\b(faggot|tranny)\b/i,
+    /\bnigg(er|a)\b/i,
+    /\bkys\b/i,           // "kill yourself"
+    /\bi\s*hope\s*you\s*die\b/i
+  ];
+
+  /**
+   * Detecta abuso verbal, agressão ou discurso de ódio em texto.
+   * @param {string} text Texto a inspecionar.
+   * @returns {{detected: boolean, match: string, language: 'pt-BR'|'en'} | null}
+   */
+  function detectAbuse(text) {
+    if (!text || typeof text !== 'string') return null;
+    const lower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    for (const re of _abusePatternsPTBR) {
+      const m = lower.match(re) || text.match(re);
+      if (m) return { detected: true, match: m[0], language: 'pt-BR' };
+    }
+    for (const re of _abusePatternsEN) {
+      const m = lower.match(re) || text.match(re);
+      if (m) return { detected: true, match: m[0], language: 'en' };
+    }
+    return null;
+  }
+
+  /**
+   * Constrói resposta sintética de hard fail por conduta. Usa formato
+   * compatível com o que `callAPI` retorna ({ parsed, rawText, usage }).
+   * Simulador pode customizar via SIMULATOR_CONFIG.conductFailNarrative
+   * (string) e SIMULATOR_CONFIG.conductFailFeedback (string).
+   *
+   * @param {Object} config SIMULATOR_CONFIG do simulador atual
+   * @param {Object} match resultado de detectAbuse
+   * @returns {{parsed: Object, rawText: string, usage: Object, syntheticGuardResponse: true}}
+   */
+  function buildConductFailResponse(config, match) {
+    // Narrativa de fechamento — customizável por simulador
+    const defaultNarrative = 'A pessoa do outro lado fica em silêncio por alguns segundos. Você ouve um suspiro pesado.\n\n— Eu não vou continuar essa conversa. Isso não é atendimento profissional, é desrespeito. Vou pedir pra falar com seu supervisor — alguém precisa saber que a Galícia está sendo representada assim. Tchau.\n\nA chamada é encerrada.';
+    const narrative = (config && config.conductFailNarrative) || defaultNarrative;
+
+    // Feedback pedagógico — customizável
+    const defaultFeedback = 'CONDUTA INADMISSÍVEL. Você enviou linguagem agressiva/abusiva em um atendimento profissional. Isso viola a regra de conduta inegociável do simulador e violaria, na vida real, o código de conduta de qualquer empresa séria. Não há gradação de gravidade aqui: a primeira ocorrência já encerra a interação. A simulação foi anulada. Recomendação: revisite o módulo de Postura Profissional antes de nova tentativa.';
+    const feedback = (config && config.conductFailFeedback) || defaultFeedback;
+
+    // Zera todos os indicadores (turno anulado)
+    const zeroedIndicators = {};
+    if (config && config.indicators) {
+      config.indicators.forEach(function(ind) { zeroedIndicators[ind.id] = 0; });
+    }
+
+    const parsed = {
+      narrative: narrative,
+      feedback: feedback,
+      articulation_class: 'generica',
+      indicators: zeroedIndicators,
+      should_end: true,
+      hard_fail: true,
+      conduct_violation: true,
+      conduct_violation_match: match.match,
+      conduct_violation_language: match.language,
+      case_state: null,
+      patient_pills: [{ label: 'SESSÃO ANULADA', tone: 'danger' }],
+      scene_eyebrow: 'CONDUTA · ANULADA',
+      diagnosis: {
+        classification: 'conduct_fail',
+        recommendation: 'Revisar módulo de Postura Profissional e Código de Conduta antes de retornar ao simulador.',
+        violated_rule: 'Abuso verbal / agressão ao interlocutor — conduta incompatível com qualquer padrão profissional'
+      }
+    };
+
+    return {
+      parsed: parsed,
+      rawText: JSON.stringify(parsed),
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
+      syntheticGuardResponse: true
+    };
+  }
+
+  /**
+   * Hook executado por callAPI antes de chamar a IA. Se a última message
+   * do usuário contém abuso, retorna resposta sintética. Caso contrário,
+   * retorna null (callAPI segue normalmente).
+   */
+  function _runPreflightGuards(messages, config) {
+    if (!config || config.disableAbuseGuard === true) return null;
+    if (!messages || messages.length === 0) return null;
+
+    // Encontra a última mensagem do usuário
+    let lastUserMsg = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMsg = messages[i].content;
+        break;
+      }
+    }
+    if (!lastUserMsg) return null;
+
+    // Remove META markers e brackets do sistema antes de checar
+    // (a defesa é contra texto do estudante, não contra markers do JS)
+    const cleaned = String(lastUserMsg).replace(/\[META:[^\]]*\]/g, '').replace(/\[SISTEMA:[^\]]*\]/g, '');
+
+    const abuse = detectAbuse(cleaned);
+    if (abuse) {
+      console.warn('[ActiveIA.guards] Abuso detectado preventivamente. Língua: ' + abuse.language + '. Match: "' + abuse.match + '". Retornando resposta sintética sem consumir token.');
+      return buildConductFailResponse(config, abuse);
+    }
+
+    return null;
   }
 
   // ==========================================================================
@@ -4103,6 +4276,10 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     storage: { get: storageGet, set: storageSet, remove: storageRemove, preload: preloadCache },
     parseJSON: parseJSON,
     callAPI: callAPI,
+    guards: {
+      detectAbuse: detectAbuse,
+      buildConductFailResponse: buildConductFailResponse
+    },
     archetype: { select: selectArchetype, recordPlayed: recordArchetypePlayed },
     branching: { buildContext: buildBranchingContext },
     articulation: { rulesPromptBlock: getArticulationRulesPromptBlock },
