@@ -3816,6 +3816,33 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     const sections = sidePanel.sections || [];
     const sidePanelHtml = sections.map(sec => _renderPanelSection(sec)).join('');
 
+    // ---------- STATUS STRIP (faixa de indicadores p/ mobile) ----------
+    // v1.4.1: a side-panel é escondida abaixo de 900px pelo CSS, que espera
+    // uma .status-strip no lugar. Antes desta versão o sceneRender nunca
+    // gerava essa faixa, então os indicadores sumiam no mobile e no embed
+    // estreito. Aqui reutilizamos os MESMOS dados da seção 'indicators' do
+    // sidePanel para montar a faixa. Sem fonte de dados nova — espelho fiel.
+    const _indicatorsSection = sections.find(sec => (sec.type === 'indicators'));
+    let statusStripHtml = '';
+    if (_indicatorsSection && Array.isArray(_indicatorsSection.data) && _indicatorsSection.data.length > 0) {
+      const cells = _indicatorsSection.data.map(ind => {
+        const pct = Math.max(0, Math.min(100, Number(ind.value) || 0));
+        // Nome curto: primeira palavra, para caber na faixa estreita.
+        const shortName = _e(String(ind.name || '').split(' ')[0]);
+        return `
+          <div class="status-cell">
+            <div class="sc-name">${shortName}</div>
+            <div class="sc-value">${pct}</div>
+          </div>
+        `;
+      }).join('');
+      statusStripHtml = `
+        <div class="status-strip" id="status-strip">
+          <div class="status-strip-inner">${cells}</div>
+        </div>
+      `;
+    }
+
     // ---------- MONTAGEM FINAL ----------
     const html = `
       <section id="screen-game" class="screen active">
@@ -3836,6 +3863,7 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
           </div>
         </header>
         <main class="game-stage">
+          ${statusStripHtml}
           <div class="game-grid">
             <aside class="turn-monument">
               <div class="turn-meta-block">
