@@ -3420,24 +3420,34 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
 
   // --------------------------------------------------------------------------
   // HELPER: _notifyHeight()
-  // Mede a altura real do conteúdo e envia para a página hospedeira via
+  // Mede a altura real do CONTEÚDO e envia para a página hospedeira via
   // postMessage. Roda em dois momentos (próximo frame + 250ms) porque alguns
   // elementos (fontes, imagens) só assentam a altura depois do primeiro
   // desenho. Seguro fora de iframe: window.parent === window, sem efeito.
-  // --------------------------------------------------------------------------
+  //
+  // v1.4.1-fix: NÃO usar documentElement.scrollHeight/offsetHeight aqui —
+  // dentro de um iframe esses valores INCLUEM a altura do próprio iframe, então
+  // quando o iframe cresce o número cresce junto, criando um loop de feedback
+  // (o iframe inchava sem parar). A altura correta é a do CONTEÚDO real: a tela
+  // ativa (.screen.active) ou, no limite, o body — medidos por
+  // getBoundingClientRect, que reflete o tamanho intrínseco do conteúdo e não
+  // se auto-alimenta com o tamanho do iframe.
   function _notifyHeight() {
     try {
       if (typeof window === 'undefined' || !window.parent || window.parent === window) return;
       const send = function() {
         try {
-          const doc = document.documentElement;
-          const body = document.body;
-          const h = Math.max(
-            doc ? doc.scrollHeight : 0,
-            body ? body.scrollHeight : 0,
-            doc ? doc.offsetHeight : 0,
-            body ? body.offsetHeight : 0
-          );
+          let h = 0;
+          const active = document.querySelector('.screen.active');
+          if (active) {
+            h = Math.ceil(active.getBoundingClientRect().height);
+          }
+          // Fallback: se não houver .screen.active (padrões antigos), usa o
+          // conteúdo do body medido por scrollHeight do próprio body (não do
+          // documentElement, que se auto-alimentaria).
+          if (!h && document.body) {
+            h = Math.ceil(document.body.scrollHeight);
+          }
           if (h > 0) {
             window.parent.postMessage({ type: 'activeia:height', height: h }, '*');
           }
@@ -3499,16 +3509,26 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     const text = document.getElementById('loading-text');
     if (text) text.textContent = (message || 'CONSULTANDO IA...').toUpperCase();
     overlay.classList.add('active');
-    // v1.4.1: dentro de um iframe de altura fixa, o overlay (position:fixed)
-    // se ancora na faixa VISÍVEL do iframe, não no iframe inteiro. Se o aluno
-    // rolou a página, o escurecimento aparecia só numa faixa central em vez de
-    // cobrir a tela. Rolar o documento para o topo ao mostrar o loading faz a
-    // faixa visível coincidir com o topo do simulador — o escurecimento então
-    // cobre o que o aluno está vendo (mesma sensação de tela cheia do padrão
-    // antigo). Try/catch porque scroll pode falhar em contextos restritos.
+
+    // v1.4.1-fix: garante cobertura de tela cheia INDEPENDENTE de CSS externo.
+    // Aplica o posicionamento direto no elemento — assim, mesmo que algum CSS
+    // da página hospedeira interfira, o overlay cobre toda a área visível.
+    try {
+      overlay.style.position = 'fixed';
+      overlay.style.top = '0';
+      overlay.style.left = '0';
+      overlay.style.right = '0';
+      overlay.style.bottom = '0';
+      overlay.style.zIndex = '99999';
+    } catch (e) { /* noop */ }
+
+    // Rola o documento ao topo (instantâneo, não suave) para que a faixa
+    // visível do iframe coincida com o topo do simulador no momento em que o
+    // overlay aparece. Instantâneo porque o 'smooth' poderia não terminar
+    // antes do overlay já estar visível, deixando a cobertura desalinhada.
     try {
       if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo(0, 0);
       }
     } catch (e) { /* scroll é melhoria visual, nunca bloqueia o loading */ }
   }
