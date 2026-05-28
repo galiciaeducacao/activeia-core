@@ -740,6 +740,15 @@
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => { _notifyConnectionChange(); });
     window.addEventListener('offline', () => { _notifyConnectionChange(); });
+    // Ao redimensionar (girar celular, mudar zoom), reavisa a altura.
+    // Debounce de 200ms evita disparos em rajada durante o gesto.
+    let _heightResizeTimer = null;
+    window.addEventListener('resize', () => {
+      if (_heightResizeTimer) clearTimeout(_heightResizeTimer);
+      _heightResizeTimer = setTimeout(() => {
+        try { _notifyHeight(); } catch (e) { /* noop */ }
+      }, 200);
+    });
   }
 
   // Cada kind de erro tem mensagem específica para o estudante e flag de recuperabilidade
@@ -3488,7 +3497,90 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
       return null;
     }
     el.innerHTML = html;
+    // Avisa o iframe da lição qual é a altura real do simulador, sempre que
+    // uma tela é montada. Como TODAS as telas (boot, jogo, dossiê, etc.)
+    // passam por _mountIn, este é o único lugar que precisa emitir.
+    _notifyHeight();
+    // Liga um observador contínuo de tamanho na tela ativa. Telas densas
+    // como o dossiê "se acomodam" depois do render (fontes carregando,
+    // tabelas recalculando) — sem o observador, a medição inicial pode pegar
+    // um valor menor que o final e o iframe trava nesse tamanho menor,
+    // cortando conteúdo.
+    _observeActiveScreen();
     return el;
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPER: _notifyHeight()
+  // Mede a altura real do CONTEÚDO e envia para a página hospedeira via
+  // postMessage. Mede em vários momentos (próximo frame, 250ms, 600ms, 1200ms)
+  // para cobrir conteúdo que "se acomoda" depois do render inicial — caso
+  // do dossiê, que tem tabela, listas dinâmicas e fontes Montserrat que
+  // só assentam após o primeiro paint. Seguro fora de iframe.
+  //
+  // Mede a altura do CONTEÚDO real (.screen.active via getBoundingClientRect),
+  // NÃO do documentElement — dentro de um iframe, documentElement.scrollHeight
+  // se auto-alimenta quando o iframe cresce, criando loop infinito. O
+  // getBoundingClientRect da screen ativa reflete o tamanho intrínseco e
+  // não tem esse problema.
+  function _notifyHeight() {
+    try {
+      if (typeof window === 'undefined' || !window.parent || window.parent === window) return;
+      const send = function() {
+        try {
+          let h = 0;
+          const active = document.querySelector('.screen.active');
+          if (active) {
+            h = Math.ceil(active.getBoundingClientRect().height);
+          }
+          // Fallback: se não houver .screen.active (padrões antigos),
+          // usa scrollHeight do body (não do documentElement).
+          if (!h && document.body) {
+            h = Math.ceil(document.body.scrollHeight);
+          }
+          if (h > 0) {
+            window.parent.postMessage({ type: 'activeia:height', height: h }, '*');
+          }
+        } catch (e) { /* cross-origin ou contexto restrito — ignora */ }
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(send);
+      } else {
+        send();
+      }
+      // Vários momentos cobrem conteúdo que demora a assentar (fontes,
+      // tabelas, listas dinâmicas do dossiê).
+      setTimeout(send, 250);
+      setTimeout(send, 600);
+      setTimeout(send, 1200);
+    } catch (e) { /* nunca bloqueia a montagem da tela */ }
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPER: _observeActiveScreen()
+  // Liga um ResizeObserver na tela ativa para detectar QUALQUER mudança de
+  // altura depois do render inicial. Cobre o caso em que o conteúdo "cresce"
+  // depois das medições agendadas (ex: dossiê com tabela longa de conceitos
+  // que recalcula largura das colunas e empurra altura para cima).
+  //
+  // Desconecta o observer anterior antes de criar um novo — assim a memória
+  // não acumula a cada troca de tela. Se ResizeObserver não existir no
+  // navegador (raro hoje), apenas ignora.
+  let _aiaResizeObserver = null;
+  function _observeActiveScreen() {
+    try {
+      if (typeof ResizeObserver === 'undefined') return;
+      if (_aiaResizeObserver) {
+        try { _aiaResizeObserver.disconnect(); } catch (e) {}
+        _aiaResizeObserver = null;
+      }
+      const active = document.querySelector('.screen.active');
+      if (!active) return;
+      _aiaResizeObserver = new ResizeObserver(function() {
+        _notifyHeight();
+      });
+      _aiaResizeObserver.observe(active);
+    } catch (e) { /* observador é melhoria, não bloqueia nada */ }
   }
 
   // --------------------------------------------------------------------------
