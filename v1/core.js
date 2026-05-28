@@ -740,6 +740,15 @@
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => { _notifyConnectionChange(); });
     window.addEventListener('offline', () => { _notifyConnectionChange(); });
+    // v1.4.1: ao redimensionar (girar o celular, mudar zoom), reavisa a altura
+    // para o iframe se reajustar. Debounce de 200ms evita disparos em rajada.
+    let _heightResizeTimer = null;
+    window.addEventListener('resize', () => {
+      if (_heightResizeTimer) clearTimeout(_heightResizeTimer);
+      _heightResizeTimer = setTimeout(() => {
+        try { _notifyHeight(); } catch (e) { /* noop */ }
+      }, 200);
+    });
   }
 
   // Cada kind de erro tem mensagem específica para o estudante e flag de recuperabilidade
@@ -3399,7 +3408,48 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
       return null;
     }
     el.innerHTML = html;
+    // v1.4.1: avisa a página hospedeira (o bloco de iframe da lição) qual é a
+    // altura real do simulador, sempre que uma tela é montada. Como TODAS as
+    // telas (boot, jogo, dossiê, etc.) passam por _mountIn, este é o único
+    // lugar que precisa emitir. O iframe escuta e se ajusta — assim some o
+    // espaço vazio (boot curto) e o overlay 'IA pensando' passa a cobrir a
+    // tela inteira (o iframe fica do tamanho exato do conteúdo).
+    _notifyHeight();
     return el;
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPER: _notifyHeight()
+  // Mede a altura real do conteúdo e envia para a página hospedeira via
+  // postMessage. Roda em dois momentos (próximo frame + 250ms) porque alguns
+  // elementos (fontes, imagens) só assentam a altura depois do primeiro
+  // desenho. Seguro fora de iframe: window.parent === window, sem efeito.
+  // --------------------------------------------------------------------------
+  function _notifyHeight() {
+    try {
+      if (typeof window === 'undefined' || !window.parent || window.parent === window) return;
+      const send = function() {
+        try {
+          const doc = document.documentElement;
+          const body = document.body;
+          const h = Math.max(
+            doc ? doc.scrollHeight : 0,
+            body ? body.scrollHeight : 0,
+            doc ? doc.offsetHeight : 0,
+            body ? body.offsetHeight : 0
+          );
+          if (h > 0) {
+            window.parent.postMessage({ type: 'activeia:height', height: h }, '*');
+          }
+        } catch (e) { /* cross-origin ou contexto restrito — ignora */ }
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(send);
+      } else {
+        send();
+      }
+      setTimeout(send, 250);
+    } catch (e) { /* nunca bloqueia a montagem da tela */ }
   }
 
   // --------------------------------------------------------------------------
