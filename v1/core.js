@@ -4114,6 +4114,37 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     const sections = sidePanel.sections || [];
     const sidePanelHtml = sections.map(sec => _renderPanelSection(sec)).join('');
 
+    // ---------- STATUS STRIP (indicadores em faixa horizontal — mobile) ----------
+    // v1.4.1: a side-panel é escondida pelo CSS abaixo de 900px (mobile).
+    // Para que o aluno continue vendo os indicadores no celular, geramos uma
+    // faixa horizontal compacta com os mesmos dados das seções type:'indicators'
+    // e a colocamos no topo do game-stage. O CSS (.status-strip) é responsável
+    // por mostrá-la apenas no mobile, escondendo-a no desktop. Reusa os
+    // mesmos dados já recebidos em sections, sem pedir nada novo ao simulador.
+    let statusStripHtml = '';
+    const indicatorCells = [];
+    sections.forEach(sec => {
+      if (sec && sec.type === 'indicators') {
+        const data = sec.data || [];
+        data.forEach(ind => {
+          const pct = Math.max(0, Math.min(100, Number(ind && ind.value) || 0));
+          indicatorCells.push(`
+            <div class="status-cell">
+              <span class="sc-name">${_e(ind.name || '')}</span>
+              <span class="sc-value">${pct}</span>
+            </div>
+          `);
+        });
+      }
+    });
+    if (indicatorCells.length > 0) {
+      statusStripHtml = `
+        <div class="status-strip">
+          <div class="status-strip-inner">${indicatorCells.join('')}</div>
+        </div>
+      `;
+    }
+
     // ---------- MONTAGEM FINAL ----------
     const html = `
       <section id="screen-game" class="screen active">
@@ -4134,6 +4165,7 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
           </div>
         </header>
         <main class="game-stage">
+          ${statusStripHtml}
           <div class="game-grid">
             <aside class="turn-monument">
               <div class="turn-meta-block">
