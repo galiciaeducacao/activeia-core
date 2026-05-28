@@ -3278,15 +3278,23 @@ ${hashtags}`;
   // v1.4.1: detecta ambiente mobile para escolher a estratégia de download.
   // No mobile, o atributo `download` + a.click() é amplamente ignorado pelos
   // navegadores (iOS/Safari, e dentro de iframe), então abrimos o conteúdo
-  // numa nova aba para o usuário salvar/compartilhar pelo sistema nativo.
-  // Detecta por largura de viewport (cobre o caso do simulador embedado em
-  // iframe estreito) OU por user-agent de dispositivo touch.
+  // numa nova aba ou usamos Web Share API para o usuário salvar/compartilhar
+  // pelo sistema nativo.
+  //
+  // CORREÇÃO v1.4.1.1: usar largura do viewport como sinal de "mobile" era
+  // perigoso porque o simulador roda dentro de um iframe, e a largura do
+  // iframe pode ser estreita mesmo no DESKTOP (quando a coluna do WordPress
+  // é estreita). Isso fazia desktops com iframe estreito serem tratados como
+  // mobile, abrindo Web Share em vez do download direto. Agora usamos só
+  // sinais confiáveis de dispositivo: user-agent (Android/iPhone/iPad/etc) e
+  // tipo de ponteiro (coarse = dedo, fine = mouse). A largura do iframe não
+  // entra mais no julgamento.
   function _isMobileEnv() {
     try {
-      var narrow = (typeof window !== 'undefined') && window.innerWidth && window.innerWidth <= 820;
       var ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
-      var touchUA = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|BlackBerry|Opera Mini|IEMobile/i.test(ua);
-      return !!(narrow || touchUA);
+      var uaMobile = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+      var coarsePointer = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+      return !!(uaMobile || coarsePointer);
     } catch (e) {
       return false;
     }
