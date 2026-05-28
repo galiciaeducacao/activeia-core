@@ -1888,31 +1888,20 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
     const safeName = (state.userName || 'estudante').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const filename = `relatorio-${config.id}-${safeName}-${Date.now()}.html`;
 
-    // v1.4.1: no mobile o atributo download + a.click() é ignorado pelos
-    // navegadores (especialmente iOS e dentro de iframe), então o botão
-    // "parecia não fazer nada". A solução que funciona no celular é ABRIR o
-    // conteúdo numa nova aba — o aluno usa o "compartilhar/salvar" nativo do
-    // próprio sistema a partir dela. No desktop, mantém o download direto.
+    // v1.4.1: no mobile (especialmente dentro de app/WebView) o download
+    // direto não funciona E abrir aba nova é frequentemente bloqueado pelo
+    // app. Estratégia em duas etapas: (1) tenta a Web Share API, que abre o
+    // menu nativo do celular (WhatsApp, Email, Salvar nos Arquivos, etc.) —
+    // apps costumam permitir essa API. (2) Se não tiver suporte, mostra o
+    // relatório DENTRO do próprio simulador com botão "Salvar PDF" que
+    // dispara o diálogo nativo de impressão do celular (que tem opção
+    // "Salvar como PDF"). Nada externo é aberto, nada pode ser bloqueado.
     if (_isMobileEnv()) {
-      const win = window.open(url, '_blank');
-      if (!win) {
-        // Pop-up bloqueado: orienta o aluno em vez de falhar em silêncio.
-        showModal({
-          eyebrow: 'RELATÓRIO',
-          title: 'Permita a abertura para ver o relatório',
-          body: 'Seu navegador bloqueou a abertura do relatório. Toque em "Abrir relatório" e, se aparecer um aviso de pop-up, permita. Na página que abrir, use o menu do navegador para salvar ou compartilhar.',
-          bodyIsHTML: false,
-          actions: [
-            { label: 'Fechar', close: true, onClick: () => { setTimeout(() => URL.revokeObjectURL(url), 1000); } },
-            { label: 'Abrir relatório', primary: true, close: true, onClick: () => { window.open(url, '_blank'); } }
-          ]
-        });
-        return;
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      _tryShareOrShowReport(blob, filename, url);
       return;
     }
 
+    // Desktop: download direto (atributo download funciona aqui)
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -1920,6 +1909,113 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // v1.4.1: tenta compartilhar o relatório via Web Share API e, se não der,
+  // mostra o relatório inline com botão de impressão/PDF.
+  async function _tryShareOrShowReport(blob, filename, url) {
+    try {
+      const file = new File([blob], filename, { type: 'text/html' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Relatório Active IA — Galícia Educação'
+        });
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // usuário cancelou o share
+      console.warn('[ActiveIA] Web Share do relatório falhou:', err);
+    }
+    // Fallback robusto: relatório dentro do próprio simulador, com botão
+    // Salvar PDF que aciona o diálogo nativo de impressão do celular.
+    _showReportInlineOverlay(url);
+  }
+
+  // v1.4.1: substitui temporariamente o conteúdo do simulador pelo overlay
+  // do relatório. Tem um header com "Voltar" e "Salvar PDF", e um iframe
+  // interno que carrega o HTML completo do relatório. Quando o aluno toca
+  // em "Salvar PDF", chama iframe.contentWindow.print() — o celular abre o
+  // diálogo nativo onde tem a opção "Salvar como PDF". Quando toca em
+  // "Voltar", restaura o dossiê que estava antes.
+  //
+  // Por que não usar position:fixed com overlay flutuante: dentro de um
+  // iframe (que é como o simulador roda no WordPress), position:fixed se
+  // ancora ao iframe e cobre só a faixa visível, não a página inteira.
+  // Substituir o conteúdo do activeia-root e re-medir a altura é mais
+  // robusto — o iframe externo se ajusta naturalmente ao novo conteúdo.
+  function _showReportInlineOverlay(url) {
+    const root = document.getElementById('activeia-root');
+    if (!root) {
+      // Sem root, não há onde renderizar — abre em aba nova como último recurso
+      window.open(url, '_blank');
+      return;
+    }
+    // Guarda o HTML atual (o dossiê) pra restaurar quando o aluno voltar
+    const savedHtml = root.innerHTML;
+
+    // O cabeçalho usa estilos inline para não depender do CSS externo (que
+    // pode demorar a carregar ou ter sido sobrescrito).
+    const headerStyle = 'background:#0a1628;color:#fff;padding:14px 16px;display:flex;gap:10px;align-items:center;justify-content:space-between;font-family:Montserrat,system-ui,sans-serif;flex-wrap:wrap;';
+    const backBtnStyle = 'background:transparent;color:#91F2FF;border:1.5px solid #91F2FF;padding:9px 16px;border-radius:8px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;min-height:42px;';
+    const printBtnStyle = 'background:#fff;color:#0a1628;border:none;padding:9px 16px;border-radius:8px;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;min-height:42px;';
+    const labelStyle = 'font-size:11px;letter-spacing:1.5px;color:#91F2FF;font-weight:700;text-transform:uppercase;flex:1;text-align:center;';
+    // Altura generosa do iframe interno para o relatório ter espaço para
+    // rolar internamente. 90vh cobre quase toda a tela do celular, e o
+    // ResizeObserver do iframe externo ajusta o todo.
+    const iframeStyle = 'width:100%;height:90vh;min-height:520px;border:0;background:#fff;display:block;';
+
+    root.innerHTML = `
+      <div id="aia-report-overlay-wrap">
+        <div style="${headerStyle}">
+          <button id="aia-report-back" type="button" style="${backBtnStyle}">← Voltar</button>
+          <span style="${labelStyle}">RELATÓRIO</span>
+          <button id="aia-report-print" type="button" style="${printBtnStyle}">Salvar PDF</button>
+        </div>
+        <iframe id="aia-report-iframe" src="${url}" style="${iframeStyle}" title="Relatório Active IA"></iframe>
+      </div>
+    `;
+
+    // Reavisa a altura para o iframe externo se ajustar ao novo conteúdo
+    _notifyHeight();
+
+    const backBtn = document.getElementById('aia-report-back');
+    const printBtn = document.getElementById('aia-report-print');
+
+    if (backBtn) {
+      backBtn.onclick = function() {
+        root.innerHTML = savedHtml;
+        // O event delegation global continua valendo para os botões
+        // restaurados (data-aia-action); listeners não se perdem.
+        _notifyHeight();
+        _observeActiveScreen();
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
+      };
+    }
+    if (printBtn) {
+      printBtn.onclick = function() {
+        const iframe = document.getElementById('aia-report-iframe');
+        if (!iframe) return;
+        try {
+          // Foco no iframe é necessário em alguns navegadores antes do print
+          iframe.focus();
+          if (iframe.contentWindow) {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          }
+        } catch (e) {
+          console.warn('[ActiveIA] Print do relatório falhou:', e);
+          showModal({
+            eyebrow: 'RELATÓRIO',
+            title: 'Não foi possível abrir a impressão',
+            body: 'Seu navegador ou app não permitiu abrir o diálogo de impressão. Como alternativa, você pode tirar uma captura de tela do relatório.',
+            bodyIsHTML: false,
+            actions: [{ label: 'Entendi', primary: true, close: true }]
+          });
+        }
+      };
+    }
   }
 
   function exportSessionPDF(state, diagnosis, config) {
@@ -2618,12 +2714,32 @@ ${hashtags}`;
       {
         label: 'Baixar imagem',
         close: false,
-        onClick: () => {
+        onClick: async () => {
           const filename = `active-ia-${config.id}-${state.userName?.replace(/\s+/g, '-').toLowerCase() || 'estudante'}.png`;
-          // v1.4.1: no mobile, download direto não funciona. Abre a imagem
-          // numa nova aba — o aluno segura a imagem e usa "Salvar imagem" do
-          // próprio celular. No desktop, mantém o download direto.
+
+          // v1.4.1: no mobile (especialmente dentro de app/WebView), tenta a
+          // Web Share API primeiro — ela abre o menu nativo do celular para
+          // o aluno escolher: Salvar imagem, Enviar por WhatsApp, etc. Apps
+          // costumam permitir essa API porque é o jeito padrão de compartilhar
+          // arquivos em mobile. Se não tiver suporte, cai no fallback de
+          // abrir em aba nova (que o app pode bloquear, mas tentamos).
           if (_isMobileEnv()) {
+            try {
+              const response = await fetch(cardUrl);
+              const blob = await response.blob();
+              const file = new File([blob], filename, { type: 'image/png' });
+              if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  files: [file],
+                  title: 'Active IA — Galícia Educação'
+                });
+                return false;
+              }
+            } catch (err) {
+              if (err && err.name === 'AbortError') return false; // usuário cancelou
+              console.warn('[ActiveIA] Web Share da imagem falhou:', err);
+            }
+            // Fallback: tenta abrir a imagem em nova aba (pode ser bloqueado)
             const win = window.open(cardUrl, '_blank');
             if (!win) {
               showModal({
@@ -2639,6 +2755,7 @@ ${hashtags}`;
             }
             return false;
           }
+          // Desktop: download direto (atributo download funciona aqui)
           const a = document.createElement('a');
           a.href = cardUrl;
           a.download = filename;
