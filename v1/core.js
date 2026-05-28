@@ -3449,6 +3449,18 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     const text = document.getElementById('loading-text');
     if (text) text.textContent = (message || 'CONSULTANDO IA...').toUpperCase();
     overlay.classList.add('active');
+    // v1.4.1: dentro de um iframe de altura fixa, o overlay (position:fixed)
+    // se ancora na faixa VISÍVEL do iframe, não no iframe inteiro. Se o aluno
+    // rolou a página, o escurecimento aparecia só numa faixa central em vez de
+    // cobrir a tela. Rolar o documento para o topo ao mostrar o loading faz a
+    // faixa visível coincidir com o topo do simulador — o escurecimento então
+    // cobre o que o aluno está vendo (mesma sensação de tela cheia do padrão
+    // antigo). Try/catch porque scroll pode falhar em contextos restritos.
+    try {
+      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } catch (e) { /* scroll é melhoria visual, nunca bloqueia o loading */ }
   }
 
   function loadingHide() {
