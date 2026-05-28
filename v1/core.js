@@ -2077,6 +2077,81 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
    *   da Frase 1 da caption gerada pela IA). Se omitido, usa fallback genérico.
    * @returns {Promise<Blob>} blob image/png 1080×1080
    */
+
+  /**
+   * Sugere uma forma neutra de gênero do papel profissional, para uso APENAS
+   * no card do LinkedIn (peça pública). Não reescreve texto livre — só converte
+   * o substantivo de profissão conhecido em construção neutra por área/função.
+   *
+   * Filosofia (Lição 9.1 do estado do sistema): substituição cega de texto livre
+   * é frágil. Por isso esta função é conservadora: tenta casar o INÍCIO do papel
+   * com um mapa curto de profissões comuns; se casar, devolve a forma neutra
+   * preservando o complemento (ex.: "advogada previdenciarista" → "profissional
+   * da advocacia previdenciária"); se NÃO casar, devolve o papel original
+   * inalterado e deixa a regra textual do prompt cuidar da neutralização.
+   * Nunca lança erro, nunca devolve vazio.
+   *
+   * @param {string} roleRaw - config.role_context
+   * @returns {string} forma neutra sugerida (ou o original, se não reconhecido)
+   */
+  function _suggestNeutralRole(roleRaw) {
+    const role = (roleRaw || '').trim();
+    if (!role) return 'profissional do domínio';
+
+    // Pega só o núcleo do papel (antes de ponto/dois-pontos), como o resto do core faz.
+    const core = role.split(/[.:]/)[0].trim();
+    const lower = core.toLowerCase();
+
+    // Normaliza complementos conhecidos que mudam de forma ao sair do substantivo
+    // de agente (ex.: "advogada previdenciarista" → área "previdenciária").
+    // Conservador: só converte o que está no mapa; o resto passa intacto.
+    function _normComplemento(c) {
+      if (!c) return '';
+      return c
+        .replace(/\bprevidenciarista\b/gi, 'previdenciária')
+        .replace(/\btributarista\b/gi, 'tributária')
+        .replace(/\btrabalhista\b/gi, 'trabalhista')   // já neutro
+        .replace(/\bcivilista\b/gi, 'civil')
+        .replace(/\bcriminalista\b/gi, 'criminal');
+    }
+
+    // Mapa: chave = par feminino/masculino do substantivo de profissão (no início
+    // do papel); valor = função que monta a forma neutra preservando o complemento.
+    // Complemento = o que vem depois do substantivo (ex.: "previdenciarista").
+    // NOTA: não usamos \b após o substantivo porque quebra com acentos (ã, ç).
+    // Usamos (?:\s+(.*))?$ — espaço(s) + resto opcional, ou fim da string.
+    // Ordem importa: padrões mais específicos primeiro.
+    const NEUTRAL_MAP = [
+      { re: /^advogad[ao](?:\s+(.*))?$/i,        neutral: (c) => 'profissional da advocacia' + (c ? ' ' + c : '') },
+      { re: /^ju[ií]z[ao]?(?:\s+(.*))?$/i,       neutral: (c) => 'profissional da magistratura' + (c ? ' ' + c : '') },
+      { re: /^promotor[ao]?(?:\s+(.*))?$/i,      neutral: (c) => 'profissional do Ministério Público' + (c ? ' ' + c : '') },
+      { re: /^m[ée]dic[ao](?:\s+(.*))?$/i,       neutral: (c) => 'profissional da medicina' + (c ? ' ' + c : '') },
+      { re: /^cirurgi[ãa]o?(?:\s+(.*))?$/i,      neutral: (c) => 'profissional da cirurgia' + (c ? ' ' + c : '') },
+      { re: /^enfermeir[ao](?:\s+(.*))?$/i,      neutral: (c) => 'profissional de enfermagem' + (c ? ' ' + c : '') },
+      { re: /^contador[ao]?(?:\s+(.*))?$/i,      neutral: (c) => 'profissional da contabilidade' + (c ? ' ' + c : '') },
+      { re: /^auditor[ao]?(?:\s+(.*))?$/i,       neutral: (c) => 'profissional de auditoria' + (c ? ' ' + c : '') },
+      { re: /^consultor[ao]?(?:\s+(.*))?$/i,     neutral: (c) => 'profissional de consultoria' + (c ? ' ' + c : '') },
+      { re: /^gestor[ao]?(?:\s+(.*))?$/i,        neutral: (c) => 'profissional de gestão' + (c ? ' ' + c : '') },
+      { re: /^administrador[ao]?(?:\s+(.*))?$/i, neutral: (c) => 'profissional de administração' + (c ? ' ' + c : '') },
+      { re: /^engenheir[ao](?:\s+(.*))?$/i,      neutral: (c) => 'profissional de engenharia' + (c ? ' ' + c : '') },
+      { re: /^analist[ao](?:\s+(.*))?$/i,        neutral: (c) => 'profissional de análise' + (c ? ' ' + c : '') },
+      { re: /^coach(?:\s+(.*))?$/i,              neutral: (c) => 'profissional de coaching' + (c ? ' ' + c : '') },
+      { re: /^perit[ao](?:\s+(.*))?$/i,          neutral: (c) => 'profissional de perícia' + (c ? ' ' + c : '') }
+    ];
+
+    for (const entry of NEUTRAL_MAP) {
+      const m = lower.match(entry.re);
+      if (m) {
+        const complemento = _normComplemento((m[1] || '').trim());
+        return entry.neutral(complemento);
+      }
+    }
+
+    // Não reconhecido: devolve o papel original. A regra textual do prompt
+    // (FRASE 1 + REGRAS GERAIS) instrui a IA a neutralizar na redação.
+    return core;
+  }
+
   async function generateLinkedInCard(state, diagnosis, config, precomputedChallenge) {
     try { await document.fonts.ready; } catch (e) {}
 
@@ -2217,7 +2292,8 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
 
     let challengeText = (precomputedChallenge || '').trim();
     if (!challengeText) {
-      const role = (config.role_context || '').split(/[.:]/)[0].trim();
+      const roleRaw = (config.role_context || '').split(/[.:]/)[0].trim();
+      const role = _suggestNeutralRole(roleRaw);
       challengeText = role
         ? 'Assumi o papel de ' + role.toLowerCase() + ' em um caso real do mercado.'
         : 'Enfrentei um caso real do mercado com decisão sob pressão.';
@@ -2513,12 +2589,20 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
       const consultantsUsed = state.consultantsUsed || 0;
       const archetypeDescription = state.archetype?.seed_description || 'um caso clínico complexo';
       const role = config.role_context || 'profissional do domínio';
+      // v1.4.x — Linguagem neutra de gênero APENAS no card do LinkedIn (peça
+      // pública que qualquer pessoa pode postar). NÃO afeta a conversa nem o
+      // relatório. Não reescreve a saída da IA (frágil); apenas SUGERE uma
+      // forma neutra do papel como insumo, e a IA recebe a instrução de usá-la.
+      // Se o papel não casar com o mapa, devolve o original e a regra textual
+      // do prompt cuida do resto. Nunca quebra.
+      const roleNeutralHint = _suggestNeutralRole(role);
       const articulationProfile = (state.articulationHistory || []).join(' → ') || '—';
 
       const userMsg = `Produza UM PARÁGRAFO de recapitulação para uma postagem de LinkedIn em primeira pessoa do estudante.
 
 CONTEXTO (apenas para você entender — NÃO repita literalmente no parágrafo):
-- Papel profissional assumido: ${role.substring(0, 300)}
+- Papel profissional assumido (referência): ${role.substring(0, 300)}
+- COMO se referir ao papel no texto (forma neutra de gênero, USE ESTA): ${roleNeutralHint.substring(0, 300)}
 - Natureza do caso (arquétipo): ${archetypeDescription}
 - Turnos conduzidos: ${turnsPlayed}
 - Consultas a colegas/especialistas durante a sessão: ${consultantsUsed}
@@ -2530,7 +2614,7 @@ O parágrafo NÃO repete a localização do módulo, escola, curso ou Galícia �
 ESTRUTURA OBRIGATÓRIA DO PARÁGRAFO (3 frases ao todo, nesta ordem):
 
 FRASE 1 — O desafio (1 frase, ~25-35 palavras):
-Em linguagem acessível ao público leigo (mas digna ao profissional), descreva o desafio enfrentado. Use o papel profissional ("Assumi o papel de..." ou "Como cirurgião vascular...") e nomeie o problema central em termos compreensíveis. EVITE jargão técnico denso (escores, siglas, critérios). Exemplo do tom: "Assumi o papel de cirurgião vascular num caso complexo: precisei decidir conduta para um paciente com risco iminente de AVC, em janela apertada para intervenção cirúrgica."
+Em linguagem acessível ao público leigo (mas digna ao profissional), descreva o desafio enfrentado. Use o papel profissional, mas SEM marcar o gênero de quem fez a simulação: refira-se ao papel pela profissão ou área de atuação ("Assumi o papel de profissional da advocacia previdenciária...", "Assumi o papel de profissional da cirurgia vascular..."), NUNCA pela forma flexionada em gênero ("advogada", "advogado", "cirurgião", "cirurgiã"). Este card é uma peça pública que qualquer pessoa pode postar — homem ou mulher — então o texto não pode revelar o gênero de quem o publica. NÃO use terminações "-e" ou "-x" (nada de "advogade"); apenas reescreva em torno da profissão/área. Nomeie o problema central em termos compreensíveis. EVITE jargão técnico denso (escores, siglas, critérios). Exemplo do tom: "Assumi o papel de profissional da cirurgia vascular num caso complexo: precisei decidir conduta para um paciente com risco iminente de AVC, em janela apertada para intervenção cirúrgica."
 
 FRASE 2 — Como conduziu (1 frase, MÁXIMO ABSOLUTO 35 palavras):
 Descreva de forma sucinta como o raciocínio se desenvolveu — em uma única ideia, NÃO em uma lista de tudo o que articulou. Foque no movimento principal de raciocínio (não em listar áreas, especialidades, exames ou técnicas). Limite duro: 35 palavras. Se passar disso, corte.
@@ -2553,8 +2637,9 @@ REGRAS GERAIS:
 - NÃO mencione: pós-graduação, módulo, curso, Galícia, escola (já está na frase de abertura).
 - NÃO use escores/siglas técnicas densas (ABCD2, NASCET, ASPECTS, DAPT etc.). O LinkedIn é peça de publicidade — quem é da área já entende a profundidade, quem não é precisa entender o desafio.
 - NÃO use emoji. NÃO use markdown. NÃO use JSON. Apenas o texto do parágrafo.
-- NÃO comece com "Eu". Comece com verbo de ação ou "Como [papel profissional]".
+- NÃO comece com "Eu". Comece com verbo de ação ou "Como [profissão/área de atuação]" (forma neutra, sem marcar gênero).
 - NUNCA use a palavra "aluno" ou "aluna" — use o papel profissional assumido na cena, ou "estudante" se precisar referência genérica.
+- NUNCA revele o gênero de quem fez a simulação. Refira-se ao papel pela profissão ou área ("profissional da advocacia previdenciária", "profissional de gestão"), nunca pela forma flexionada ("advogada/advogado", "gestora/gestor"), e nunca com "-e"/"-x". Verbos em primeira pessoa ("assumi", "conduzi", "articulei") não marcam gênero e estão liberados.
 
 Apenas o parágrafo (3 frases). Nada antes, nada depois.`;
 
