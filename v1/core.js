@@ -740,15 +740,6 @@
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => { _notifyConnectionChange(); });
     window.addEventListener('offline', () => { _notifyConnectionChange(); });
-    // v1.4.1: ao redimensionar (girar o celular, mudar zoom), reavisa a altura
-    // para o iframe se reajustar. Debounce de 200ms evita disparos em rajada.
-    let _heightResizeTimer = null;
-    window.addEventListener('resize', () => {
-      if (_heightResizeTimer) clearTimeout(_heightResizeTimer);
-      _heightResizeTimer = setTimeout(() => {
-        try { _notifyHeight(); } catch (e) { /* noop */ }
-      }, 200);
-    });
   }
 
   // Cada kind de erro tem mensagem específica para o estudante e flag de recuperabilidade
@@ -1885,10 +1876,37 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
     const html = buildFullReportHTML(state, diagnosis, config);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
+    const safeName = (state.userName || 'estudante').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const filename = `relatorio-${config.id}-${safeName}-${Date.now()}.html`;
+
+    // v1.4.1: no mobile o atributo download + a.click() é ignorado pelos
+    // navegadores (especialmente iOS e dentro de iframe), então o botão
+    // "parecia não fazer nada". A solução que funciona no celular é ABRIR o
+    // conteúdo numa nova aba — o aluno usa o "compartilhar/salvar" nativo do
+    // próprio sistema a partir dela. No desktop, mantém o download direto.
+    if (_isMobileEnv()) {
+      const win = window.open(url, '_blank');
+      if (!win) {
+        // Pop-up bloqueado: orienta o aluno em vez de falhar em silêncio.
+        showModal({
+          eyebrow: 'RELATÓRIO',
+          title: 'Permita a abertura para ver o relatório',
+          body: 'Seu navegador bloqueou a abertura do relatório. Toque em "Abrir relatório" e, se aparecer um aviso de pop-up, permita. Na página que abrir, use o menu do navegador para salvar ou compartilhar.',
+          bodyIsHTML: false,
+          actions: [
+            { label: 'Fechar', close: true, onClick: () => { setTimeout(() => URL.revokeObjectURL(url), 1000); } },
+            { label: 'Abrir relatório', primary: true, close: true, onClick: () => { window.open(url, '_blank'); } }
+          ]
+        });
+        return;
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return;
+    }
+
     const a = document.createElement('a');
     a.href = url;
-    const safeName = (state.userName || 'estudante').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    a.download = `relatorio-${config.id}-${safeName}-${Date.now()}.html`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2543,15 +2561,20 @@ ${hashtags}`;
     const cardUrl = URL.createObjectURL(cardBlob);
 
     // Renderiza modal com preview + texto + botões
+    // v1.4.1: layout flexível em vez de grid fixo de 2 colunas. No desktop a
+    // imagem e o texto ficam lado a lado; no mobile (tela estreita) eles
+    // empilham automaticamente (a imagem em cima, o texto embaixo), evitando
+    // o texto espremido em coluna estreitíssima. O flex-wrap + min-width faz
+    // a quebra sem precisar de media query em estilo inline.
     updateModalBody(`
-      <div style="display:grid; grid-template-columns: 180px 1fr; gap: 16px; align-items:start;">
-        <div>
+      <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start;">
+        <div style="flex:1 1 160px; max-width:220px; min-width:140px; margin:0 auto;">
           <img src="${cardUrl}" alt="Card Active IA" style="width:100%; border-radius:10px; border:1px solid var(--gal-border, #E2E8F0); display:block;" />
           <div style="font-size:11px; color:var(--gal-text-2, #475569); margin-top:6px; text-align:center; font-family:'Montserrat',sans-serif; font-weight:600;">IMAGEM 1080×1080</div>
         </div>
-        <div>
-          <div style="font-family:'Montserrat',sans-serif; font-weight:600; font-size:10px; letter-spacing:0.1em; color:var(--gal-azul-escuro, #0074C7); font-weight:600; margin-bottom:6px;">TEXTO SUGERIDO</div>
-          <textarea id="activeia-share-caption" class="activeia-modal-input" style="min-height:280px; font-size:13.5px; line-height:1.6;">${escapeHTML(caption)}</textarea>
+        <div style="flex:1 1 240px; min-width:200px;">
+          <div style="font-family:'Montserrat',sans-serif; font-weight:600; font-size:10px; letter-spacing:0.1em; color:var(--gal-azul-escuro, #0074C7); margin-bottom:6px;">TEXTO SUGERIDO</div>
+          <textarea id="activeia-share-caption" class="activeia-modal-input" style="min-height:200px; font-size:13.5px; line-height:1.6;">${escapeHTML(caption)}</textarea>
           <p style="font-size:11.5px; color:var(--gal-text-2, #475569); margin-top:6px;">Você pode editar o texto antes de postar. As hashtags ajudam o alcance da publicação.</p>
         </div>
       </div>
@@ -2587,9 +2610,29 @@ ${hashtags}`;
         label: 'Baixar imagem',
         close: false,
         onClick: () => {
+          const filename = `active-ia-${config.id}-${state.userName?.replace(/\s+/g, '-').toLowerCase() || 'estudante'}.png`;
+          // v1.4.1: no mobile, download direto não funciona. Abre a imagem
+          // numa nova aba — o aluno segura a imagem e usa "Salvar imagem" do
+          // próprio celular. No desktop, mantém o download direto.
+          if (_isMobileEnv()) {
+            const win = window.open(cardUrl, '_blank');
+            if (!win) {
+              showModal({
+                eyebrow: 'IMAGEM',
+                title: 'Permita a abertura para salvar a imagem',
+                body: 'Seu navegador bloqueou a abertura da imagem. Toque em "Abrir imagem" e, na página que abrir, segure a imagem e escolha "Salvar imagem".',
+                bodyIsHTML: false,
+                actions: [
+                  { label: 'Fechar', close: true },
+                  { label: 'Abrir imagem', primary: true, close: true, onClick: () => { window.open(cardUrl, '_blank'); } }
+                ]
+              });
+            }
+            return false;
+          }
           const a = document.createElement('a');
           a.href = cardUrl;
-          a.download = `active-ia-${config.id}-${state.userName?.replace(/\s+/g, '-').toLowerCase() || 'aluno'}.png`;
+          a.download = filename;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -2954,6 +2997,7 @@ ${hashtags}`;
 .activeia-modal-body {
   padding: 20px 24px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   flex: 1;
   font-size: 14.5px;
   line-height: 1.65;
@@ -3049,6 +3093,25 @@ ${hashtags}`;
 [data-theme="dark"] .activeia-modal {
   background: var(--gal-card, #161b22);
 }
+/* v1.4.1: ajustes mobile do modal — usa mais a tela, garante scroll, e
+   empilha os botões do rodapé quando não cabem lado a lado. */
+@media (max-width: 640px) {
+  .activeia-modal-overlay { padding: 10px; }
+  .activeia-modal { max-height: 92vh; border-radius: 12px; }
+  .activeia-modal-header { padding: 16px 18px 12px; }
+  .activeia-modal-title { font-size: 19px; }
+  .activeia-modal-body { padding: 16px 18px; }
+  .activeia-modal-footer {
+    padding: 12px 18px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .activeia-modal-footer button {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding: 11px 14px;
+  }
+}
 `;
 
   function _ensureModalCSS() {
@@ -3084,6 +3147,23 @@ ${hashtags}`;
         if (allowClose) closeModal();
       }
     });
+  }
+
+  // v1.4.1: detecta ambiente mobile para escolher a estratégia de download.
+  // No mobile, o atributo `download` + a.click() é amplamente ignorado pelos
+  // navegadores (iOS/Safari, e dentro de iframe), então abrimos o conteúdo
+  // numa nova aba para o usuário salvar/compartilhar pelo sistema nativo.
+  // Detecta por largura de viewport (cobre o caso do simulador embedado em
+  // iframe estreito) OU por user-agent de dispositivo touch.
+  function _isMobileEnv() {
+    try {
+      var narrow = (typeof window !== 'undefined') && window.innerWidth && window.innerWidth <= 820;
+      var ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+      var touchUA = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+      return !!(narrow || touchUA);
+    } catch (e) {
+      return false;
+    }
   }
 
   function escapeHTML(str) {
@@ -3408,58 +3488,7 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
       return null;
     }
     el.innerHTML = html;
-    // v1.4.1: avisa a página hospedeira (o bloco de iframe da lição) qual é a
-    // altura real do simulador, sempre que uma tela é montada. Como TODAS as
-    // telas (boot, jogo, dossiê, etc.) passam por _mountIn, este é o único
-    // lugar que precisa emitir. O iframe escuta e se ajusta — assim some o
-    // espaço vazio (boot curto) e o overlay 'IA pensando' passa a cobrir a
-    // tela inteira (o iframe fica do tamanho exato do conteúdo).
-    _notifyHeight();
     return el;
-  }
-
-  // --------------------------------------------------------------------------
-  // HELPER: _notifyHeight()
-  // Mede a altura real do CONTEÚDO e envia para a página hospedeira via
-  // postMessage. Roda em dois momentos (próximo frame + 250ms) porque alguns
-  // elementos (fontes, imagens) só assentam a altura depois do primeiro
-  // desenho. Seguro fora de iframe: window.parent === window, sem efeito.
-  //
-  // v1.4.1-fix: NÃO usar documentElement.scrollHeight/offsetHeight aqui —
-  // dentro de um iframe esses valores INCLUEM a altura do próprio iframe, então
-  // quando o iframe cresce o número cresce junto, criando um loop de feedback
-  // (o iframe inchava sem parar). A altura correta é a do CONTEÚDO real: a tela
-  // ativa (.screen.active) ou, no limite, o body — medidos por
-  // getBoundingClientRect, que reflete o tamanho intrínseco do conteúdo e não
-  // se auto-alimenta com o tamanho do iframe.
-  function _notifyHeight() {
-    try {
-      if (typeof window === 'undefined' || !window.parent || window.parent === window) return;
-      const send = function() {
-        try {
-          let h = 0;
-          const active = document.querySelector('.screen.active');
-          if (active) {
-            h = Math.ceil(active.getBoundingClientRect().height);
-          }
-          // Fallback: se não houver .screen.active (padrões antigos), usa o
-          // conteúdo do body medido por scrollHeight do próprio body (não do
-          // documentElement, que se auto-alimentaria).
-          if (!h && document.body) {
-            h = Math.ceil(document.body.scrollHeight);
-          }
-          if (h > 0) {
-            window.parent.postMessage({ type: 'activeia:height', height: h }, '*');
-          }
-        } catch (e) { /* cross-origin ou contexto restrito — ignora */ }
-      };
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(send);
-      } else {
-        send();
-      }
-      setTimeout(send, 250);
-    } catch (e) { /* nunca bloqueia a montagem da tela */ }
   }
 
   // --------------------------------------------------------------------------
@@ -3509,46 +3538,11 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     const text = document.getElementById('loading-text');
     if (text) text.textContent = (message || 'CONSULTANDO IA...').toUpperCase();
     overlay.classList.add('active');
-
-    // v1.4.1-fix: garante cobertura de tela cheia INDEPENDENTE de CSS externo.
-    // Aplica o posicionamento direto no elemento — assim, mesmo que algum CSS
-    // da página hospedeira interfira, o overlay cobre toda a área visível.
-    try {
-      overlay.style.position = 'fixed';
-      overlay.style.top = '0';
-      overlay.style.left = '0';
-      overlay.style.right = '0';
-      overlay.style.bottom = '0';
-      overlay.style.zIndex = '99999';
-    } catch (e) { /* noop */ }
-
-    // Rola o documento ao topo (instantâneo, não suave) para que a faixa
-    // visível do iframe coincida com o topo do simulador no momento em que o
-    // overlay aparece. Instantâneo porque o 'smooth' poderia não terminar
-    // antes do overlay já estar visível, deixando a cobertura desalinhada.
-    try {
-      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
-        window.scrollTo(0, 0);
-      }
-    } catch (e) { /* scroll é melhoria visual, nunca bloqueia o loading */ }
   }
 
   function loadingHide() {
     const overlay = document.getElementById('loading-overlay');
     if (overlay) overlay.classList.remove('active');
-  }
-
-  // --------------------------------------------------------------------------
-  // HELPER: _notifyOverlay(active)
-  // Avisa a página hospedeira que o overlay de "pensando" abriu (active=true)
-  // ou fechou (active=false), para o iframe expandir/encolher. Seguro fora de
-  // iframe (window.parent === window: sem efeito).
-  // --------------------------------------------------------------------------
-  function _notifyOverlay(active) {
-    try {
-      if (typeof window === 'undefined' || !window.parent || window.parent === window) return;
-      window.parent.postMessage({ type: 'activeia:overlay', active: !!active }, '*');
-    } catch (e) { /* cross-origin ou contexto restrito — ignora */ }
   }
 
   function loadingMessage(message) {
@@ -3911,33 +3905,6 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     const sections = sidePanel.sections || [];
     const sidePanelHtml = sections.map(sec => _renderPanelSection(sec)).join('');
 
-    // ---------- STATUS STRIP (faixa de indicadores p/ mobile) ----------
-    // v1.4.1: a side-panel é escondida abaixo de 900px pelo CSS, que espera
-    // uma .status-strip no lugar. Antes desta versão o sceneRender nunca
-    // gerava essa faixa, então os indicadores sumiam no mobile e no embed
-    // estreito. Aqui reutilizamos os MESMOS dados da seção 'indicators' do
-    // sidePanel para montar a faixa. Sem fonte de dados nova — espelho fiel.
-    const _indicatorsSection = sections.find(sec => (sec.type === 'indicators'));
-    let statusStripHtml = '';
-    if (_indicatorsSection && Array.isArray(_indicatorsSection.data) && _indicatorsSection.data.length > 0) {
-      const cells = _indicatorsSection.data.map(ind => {
-        const pct = Math.max(0, Math.min(100, Number(ind.value) || 0));
-        // Nome curto: primeira palavra, para caber na faixa estreita.
-        const shortName = _e(String(ind.name || '').split(' ')[0]);
-        return `
-          <div class="status-cell">
-            <div class="sc-name">${shortName}</div>
-            <div class="sc-value">${pct}</div>
-          </div>
-        `;
-      }).join('');
-      statusStripHtml = `
-        <div class="status-strip" id="status-strip">
-          <div class="status-strip-inner">${cells}</div>
-        </div>
-      `;
-    }
-
     // ---------- MONTAGEM FINAL ----------
     const html = `
       <section id="screen-game" class="screen active">
@@ -3958,7 +3925,6 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
           </div>
         </header>
         <main class="game-stage">
-          ${statusStripHtml}
           <div class="game-grid">
             <aside class="turn-monument">
               <div class="turn-meta-block">
