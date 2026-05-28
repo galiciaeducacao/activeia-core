@@ -1770,7 +1770,7 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
 
       const userResponseHTML = `<div style="margin-bottom:14px;">
           <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#0074C7;margin-bottom:6px;">Sua resposta</div>
-          <div style="padding:14px 16px;background:#E8F4FF;border-left:3px solid #0074C7;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.userResponse)}</div>
+          <div style="padding:14px 16px;background:#E8F4FF;border-left:3px solid #0074C7;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(_stripMetaInstruction(t.userResponse))}</div>
         </div>`;
 
       const narrativeHTML = t.assistantNarrative
@@ -1783,7 +1783,7 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
       const feedbackHTML = t.feedback
         ? `<div style="margin-bottom:14px;">
             <div style="font-weight:600;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#0F6E56;margin-bottom:6px;">Avaliação da IA</div>
-            <div style="padding:14px 16px;background:#E6F4EC;border-left:3px solid #1D9E75;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;white-space:pre-wrap;">${escapeHTML(t.feedback)}</div>
+            <div style="padding:14px 16px;background:#E6F4EC;border-left:3px solid #1D9E75;border-radius:4px;font-size:13.5px;line-height:1.7;color:#0a1628;">${_sanitizeFeedbackHTML(t.feedback)}</div>
           </div>`
         : '';
 
@@ -3307,6 +3307,46 @@ ${hashtags}`;
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  // v1.4.1: remove instruções [META: ...] que o motor anexa à resposta do
+  // aluno antes de enviar pro modelo. Essas instruções orientam a IA sobre o
+  // contexto do turno (ex: "Esta é a resposta 1 de 4 do ADVOGADO. NÃO encerre
+  // agora."), mas NÃO devem aparecer no relatório que o aluno baixa — só
+  // poluem e expõem a engrenagem. O padrão é o META aparecer ao final da
+  // string, separado por linhas em branco.
+  function _stripMetaInstruction(str) {
+    if (!str) return '';
+    return String(str).replace(/\s*\[META:[\s\S]*?\]\s*$/g, '').trim();
+  }
+
+  // v1.4.1: sanitização leve do feedback da IA para o relatório. A IA gera
+  // o feedback com tags HTML simples de formatação (<strong>, <em>, <ul>,
+  // <li>, <br>, <p>) para deixar a leitura clara — negrito em conclusões,
+  // listas para balanço por critério. Aplicar escapeHTML completo neutralizava
+  // essas tags, fazendo o aluno ver "<strong>Balanço</strong>" como texto.
+  //
+  // Esta função permite APENAS as tags de formatação básica acima e escapa o
+  // resto. Não é uma sanitização exaustiva (não cobre XSS perfeito), mas o
+  // feedback vem do modelo da Anthropic respondendo ao prompt do simulador —
+  // não é entrada de usuário arbitrária. Risco prático: muito baixo.
+  function _sanitizeFeedbackHTML(str) {
+    if (!str) return '';
+    // Lista branca de tags simples permitidas (sem atributos)
+    var allowed = ['strong', 'b', 'em', 'i', 'u', 'br', 'p', 'ul', 'ol', 'li'];
+    // Primeiro: escapa tudo
+    var escaped = escapeHTML(str);
+    // Depois: re-abre apenas as tags da whitelist (sem atributos)
+    // Cobre <tag>, </tag> e <tag/> (autofechamento como <br/>)
+    allowed.forEach(function(tag) {
+      var openRe = new RegExp('&lt;' + tag + '&gt;', 'gi');
+      var closeRe = new RegExp('&lt;/' + tag + '&gt;', 'gi');
+      var selfRe = new RegExp('&lt;' + tag + '\\s*/&gt;', 'gi');
+      escaped = escaped.replace(openRe, '<' + tag + '>');
+      escaped = escaped.replace(closeRe, '</' + tag + '>');
+      escaped = escaped.replace(selfRe, '<' + tag + '/>');
+    });
+    return escaped;
   }
 
   function showModal(opts) {
