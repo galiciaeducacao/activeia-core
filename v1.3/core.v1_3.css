@@ -1473,14 +1473,21 @@ body:not(:has(#screen-boot.active)):not(:has(#screen-daily.active)):not(:has(#sc
 
 /* ============================================================================
    32. RESPONSIVO DA GAMESCREEN
+   ----------------------------------------------------------------------------
+   AJUSTE 28-mai-2026: breakpoints recalibrados para o embed em iframe.
+   - corte do número da cena: 1200 -> 1280
+   - corte dos indicadores (lateral -> tira mobile): 900 -> 1100
+   Motivo: eliminar a faixa-morta 900–1200px onde os indicadores sumiam
+   no embed do LearnDash. Acima de 1280px: layout completo de 3 colunas.
+   Abaixo de 1100px: indicadores migram para a tira fixa do topo.
    ============================================================================ */
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .game-grid { grid-template-columns: 1fr 280px; }
   .turn-monument { display: none; }
   .game-stage { padding: 22px 24px 40px; }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .game-grid { grid-template-columns: 1fr; }
   .side-panel { display: none; }
   .status-strip { display: block; }
