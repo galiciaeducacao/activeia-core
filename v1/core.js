@@ -3531,11 +3531,34 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
         window.scrollTo(0, 0);
       }
     } catch (e) { /* scroll é melhoria visual, nunca bloqueia o loading */ }
+
+    // v1.4.1: avisa o iframe da lição para EXPANDIR à altura de uma tela cheia
+    // enquanto a IA pensa. Assim o escurecimento (position:fixed) cobre toda a
+    // faixa visível do aluno — sensação de "tudo parou". Ao esconder o loading,
+    // o iframe volta ao tamanho justo do conteúdo (loadingHide reavisa).
+    _notifyOverlay(true);
   }
 
   function loadingHide() {
     const overlay = document.getElementById('loading-overlay');
     if (overlay) overlay.classList.remove('active');
+    // v1.4.1: fim do "pensando" — pede ao iframe para voltar ao tamanho justo.
+    // O _notifyHeight (chamado quando a próxima tela monta) faz o ajuste fino;
+    // aqui só sinalizamos que a expansão de tela cheia acabou.
+    _notifyOverlay(false);
+  }
+
+  // --------------------------------------------------------------------------
+  // HELPER: _notifyOverlay(active)
+  // Avisa a página hospedeira que o overlay de "pensando" abriu (active=true)
+  // ou fechou (active=false), para o iframe expandir/encolher. Seguro fora de
+  // iframe (window.parent === window: sem efeito).
+  // --------------------------------------------------------------------------
+  function _notifyOverlay(active) {
+    try {
+      if (typeof window === 'undefined' || !window.parent || window.parent === window) return;
+      window.parent.postMessage({ type: 'activeia:overlay', active: !!active }, '*');
+    } catch (e) { /* cross-origin ou contexto restrito — ignora */ }
   }
 
   function loadingMessage(message) {
