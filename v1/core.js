@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.4.0
+ * ACTIVE IA — CORE v1.4.1
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
@@ -397,7 +397,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.4.0';
+  const CORE_VERSION = '1.4.1';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -950,7 +950,7 @@
     const parsed = {
       narrative: narrative,
       feedback: feedback,
-      articulation_class: 'generica',
+      articulation_class: 'fraca',
       indicators: zeroedIndicators,
       should_end: true,
       hard_fail: true,
@@ -1153,7 +1153,7 @@ Disparadores categóricos (lista NÃO exaustiva — a IA aplica julgamento profi
 - Omissão explícita de manejo de emergência reconhecível pelo padrão clínico/profissional do caso (ex.: não acionar SAMU/equipe diante de AVC ativo; não escalar uma denúncia de abuso; ignorar sinal de tentativa de suicídio).
 - Decisão que viola consentimento, sigilo profissional, ou ética básica de forma direta e identificável (ex.: divulgar dado do cliente sem autorização; conduzir procedimento sem consentimento).
 
-Quando um disparador categórico é identificado: indicador de risco vai a um valor entre 0 e 10. O parágrafo de feedback NOMEIA explicitamente o gatilho ("a decisão de dar alta neste contexto representa risco crítico para a paciente"). A classificação de articulação É "generica" (uma decisão categóricamente errada nunca é "articulada", independente da prosa). O campo case_state.key_signals_missed lista o sinal de alarme ignorado.
+Quando um disparador categórico é identificado: indicador de risco vai a um valor entre 0 e 10. O parágrafo de feedback NOMEIA explicitamente o gatilho ("a decisão de dar alta neste contexto representa risco crítico para a paciente"). A classificação de articulação É "fraca" (uma decisão categóricamente errada nunca é "plena", independente da prosa). O campo case_state.key_signals_missed lista o sinal de alarme ignorado.
 
 EXEMPLO: estudante escreve "vou dar alta com orientação de retorno se piorar" em paciente de 31 anos com crise focal em MS esquerdo, cefaleia progressiva ortostática há 5 dias, e TC com hipodensidade parietal D + componente hiperdenso. Disparador categórico ATIVADO (alta em sinal ativo de risco neurológico grave). Segurança do Paciente vai a um valor entre 0 e 10 neste turno. Sem gradação.
 
@@ -1187,7 +1187,7 @@ Ganhos (quando a decisão é protetiva) NÃO são dobrados — o objetivo é ref
 ACRÉSCIMO 4 — REGRA DE TETO DO ÚLTIMO TURNO (v1.2.10)
 ═══════════════════════════════════════════════════════════════════════
 
-No ÚLTIMO turno do nível (turno 4 no Júnior, 6 no Pleno, 9 no Sênior), se a resposta do estudante é classificada como "articulada" E o conteúdo cobre o que o módulo considera padrão de excelência, o INDICADOR-FOCO da fase em que o último turno se encerra deve fechar entre 95 e 100.
+No ÚLTIMO turno do nível (turno 4 no Júnior, 6 no Pleno, 9 no Sênior), se a resposta do estudante é classificada como "plena" E o conteúdo cobre o que o módulo considera padrão de excelência, o INDICADOR-FOCO da fase em que o último turno se encerra deve fechar entre 95 e 100.
 
 Justificativa: indicadores são acumulativos e o último turno é a última oportunidade do estudante. Não há "turno seguinte" para usar margem reservada. Em sessões Júnior (apenas 4 turnos respondidos), reservar margem é matematicamente impossível de aproveitar e cria a falsa sensação de teto baixo para desempenho exemplar.
 
@@ -1200,7 +1200,7 @@ Esta regra NÃO se aplica a indicadores que ficaram subarticulados ao longo da s
 REGRA-CHAVE: um indicador de risco JAMAIS sobe simplesmente porque o estudante "se esforçou em escrever algo". Ele sobe quando uma decisão ATIVAMENTE PROTETIVA é tomada — encaminhar, escalar, contraindicar, comunicar risco ao paciente/cliente, recusar conduta inadequada. Ele desce quando uma decisão arriscada é tomada, quando um sinal de alarme é ignorado, ou quando o escopo profissional é violado. Em ausência de qualquer um desses, fica parado.
 
 CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
-"articulation_class": "generica" | "parcial" | "articulada"
+"articulation_class": "fraca" | "parcial" | "plena"
 ═══════════════════════════════════════════════════════════════
 `;
   }
@@ -1256,7 +1256,7 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
     if (tolerance.earlyEnd && articulationHistory.length >= 2) {
       const last2 = articulationHistory.slice(-2);
       if (tolerance.trigger === 'two_generic_consecutive') {
-        if (last2.every(c => c === 'generica')) {
+        if (last2.every(c => c === 'fraca')) {
           return {
             terminate: true,
             reason: 'articulation_pleno',
@@ -1266,7 +1266,7 @@ CLASSIFICAÇÃO INTERNA (incluir no JSON de resposta):
         }
       }
       if (tolerance.trigger === 'two_weak_consecutive') {
-        if (last2.every(c => c === 'generica' || c === 'parcial')) {
+        if (last2.every(c => c === 'fraca' || c === 'parcial')) {
           return {
             terminate: true,
             reason: 'articulation_senior',
@@ -1362,7 +1362,7 @@ Decisões: ${(t.case_state?.key_decisions_taken || []).join(', ') || '—'}`;
     // ========================================================================
     const respondedTurns = respondedEntries;
     const respondedCount = respondedTurns.length;
-    const articulatedCount = state.articulationHistory.filter(c => c === 'articulada').length;
+    const articulatedCount = state.articulationHistory.filter(c => c === 'plena').length;
     const articulationPct = respondedCount > 0
       ? Math.round((articulatedCount / respondedCount) * 100)
       : 0;
@@ -1417,7 +1417,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
 
 {
   "concept_map": {
-    "<concept_id>": "dominado" | "parcial" | "fragil" | "nao_demonstrado"
+    "<concept_id>": "demonstrado" | "parcialmente_demonstrado" | "nao_demonstrado"
   },
   "concept_justifications": {
     "<concept_id>": "Frase explicando por que essa classificação, com referência ao turno (ex.: 'No turno 3 articulou ASPECTS corretamente'). Para 'nao_demonstrado', explique que o caso não dava oportunidade clara."
@@ -1432,7 +1432,7 @@ PRODUZA JSON RIGOROSAMENTE NO FORMATO ABAIXO. Sem texto antes ou depois. Apenas 
     "action": "subir_nivel" | "repetir_nivel" | "voltar_nivel" | "revisar_modulo",
     "rationale": "Mensagem CONSTRUTIVA e DIRETA ao estudante em 2-3 frases. PRIMEIRA frase: nomeia o desempenho usando os números reais ('Você fechou ${articulationPct}% de articulações plenas e indicadores em média ${indicatorAvg}'). SEGUNDA frase: justifica a recomendação. TERCEIRA frase (opcional): sinaliza o que esperar no próximo passo. Sem jargão pedagógico, sem 'você precisa', tom de parceria. Para nível Júnior com bom desempenho: trate avançar como reconhecimento, não como cobrança."
   },
-  "headline_metric": "Frase curta para o card LinkedIn, ex.: '12 de 15 conceitos do módulo dominados'"
+  "headline_metric": "Frase curta para o card LinkedIn, ex.: '12 de 15 conceitos do módulo demonstrados'"
 }
 
 ═══════════════════════════════════════════════════════════════════════
@@ -1493,12 +1493,36 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
 
 ═══════════════════════════════════════════════════════════════════════`;
 
-    const result = await callAPI({
+    let result = await callAPI({
       systemFixed: config.reference_content + '\n\n' + getArticulationRulesPromptBlock(),
       systemDynamic: 'Modo: análise final de sessão completa para produzir diagnóstico estruturado.',
       messages: [{ role: 'user', content: userMsg }],
       maxTokens: 3000
     });
+
+    // ========================================================================
+    // RETRY DO DIAGNÓSTICO (v1.4.1): rede de segurança contra resposta em prosa.
+    //
+    // Causa-raiz do "0/25": quando a IA responde o diagnóstico em texto livre
+    // (em vez do JSON pedido), parseJSONLoose devolve null, e o dossiê inteiro
+    // caía no fallback zerado (concept_map vazio → 0 conceitos demonstrados).
+    // Aqui, se o parse falhou, tentamos UMA segunda vez com instrução de
+    // formato reforçada, antes de desistir. Resolve o caso intermitente sem
+    // alterar o prompt principal nem a lógica de remap abaixo.
+    // ========================================================================
+    if (!result.parsed) {
+      console.warn('[ActiveIA] Diagnóstico não parseou na 1ª tentativa — refazendo com instrução reforçada.');
+      try {
+        result = await callAPI({
+          systemFixed: config.reference_content + '\n\n' + getArticulationRulesPromptBlock(),
+          systemDynamic: 'Modo: análise final de sessão. ATENÇÃO: a resposta anterior não veio em JSON válido. Responda AGORA, obrigatoriamente, APENAS com o objeto JSON especificado — começando com { e terminando com } — sem nenhuma palavra, título, explicação ou markdown antes ou depois. Não narre. Não escreva em primeira pessoa. Apenas o JSON.',
+          messages: [{ role: 'user', content: userMsg }],
+          maxTokens: 3000
+        });
+      } catch (e) {
+        console.error('[ActiveIA] Retry do diagnóstico falhou:', e && e.message);
+      }
+    }
 
     // ========================================================================
     // FILTRO DEFENSIVO (v1.2.11): valida e remapeia turn-numbers no output.
@@ -1583,9 +1607,8 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
       const cls = (diagnosis.concept_map && diagnosis.concept_map[c.id]) || 'nao_demonstrado';
       const just = (diagnosis.concept_justifications && diagnosis.concept_justifications[c.id]) || '';
       const labels = {
-        dominado: { label: 'Dominado', color: '#1D9E75' },
-        parcial: { label: 'Parcial', color: '#BA7517' },
-        fragil: { label: 'Frágil', color: '#A32D2D' },
+        demonstrado: { label: 'Demonstrado', color: '#1D9E75' },
+        parcialmente_demonstrado: { label: 'Parcialmente demonstrado', color: '#BA7517' },
         nao_demonstrado: { label: 'Não demonstrado', color: '#94a3b8' }
       };
       const meta = labels[cls] || labels.nao_demonstrado;
@@ -1773,9 +1796,9 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
     const transcriptHTML = respondedEntries.map((t, idx) => {
       const turnNumber = idx + 1;
       const articulationLabel = {
-        articulada: { label: 'Articulação plena', color: '#1D9E75' },
+        plena: { label: 'Articulação plena', color: '#1D9E75' },
         parcial: { label: 'Articulação parcial', color: '#BA7517' },
-        generica: { label: 'Articulação genérica', color: '#A32D2D' }
+        fraca: { label: 'Articulação fraca', color: '#A32D2D' }
       };
       const artMeta = articulationLabel[t.articulation_class] || { label: '—', color: '#94a3b8' };
 
@@ -4409,9 +4432,9 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
     if (withFeedback && feedback) {
       const cls = _e(feedback.classification || '');
       const classMap = {
-        articulada: 'Articulação plena',
+        plena: 'Articulação plena',
         parcial: 'Articulação parcial',
-        generica: 'Articulação genérica'
+        fraca: 'Articulação fraca'
       };
       const classLabel = classMap[cls] || '';
       feedbackHtml = `
@@ -4680,9 +4703,9 @@ Apenas o texto da sua resposta. Nada antes, nada depois.`;
 
   function _conceptStatusLabel(status) {
     const map = {
-      dominado: 'Dominado',
+      demonstrado: 'Demonstrado',
       parcial: 'Parcial',
-      fragil: 'Frágil',
+      parcialmente_demonstrado: 'Parcialmente demonstrado',
       nao_demonstrado: 'Não demonstrado'
     };
     return map[status] || status || '';
