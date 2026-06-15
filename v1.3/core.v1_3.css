@@ -2036,3 +2036,25 @@ body:not(:has(#screen-boot.active)):not(:has(#screen-daily.active)):not(:has(#sc
 /* ============================================================================
    FIM DA SESSÃO 3C — dossiê final
    ============================================================================ */
+
+/* ============================================================================
+   v1.3.1 (jun/2026) — FLOW PARA EMBED AUTO-RESIZE
+   ----------------------------------------------------------------------------
+   O simulador roda dentro de um iframe que se auto-redimensiona (escuta
+   postMessage 'activeia:height'). Com as telas em `min-height:100vh`, cada
+   tela preenchia o iframe → o core media sempre a altura do iframe e o
+   auto-resize travava (no desktop ficava baixo/cortado; no app, com
+   viewport-fixo, dava overflow/scroll em duas direções).
+
+   Override: as telas e containers FLUEM (altura = conteúdo). Assim o
+   auto-resize mede a altura real e cresce o iframe → SCROLL EM UMA DIREÇÃO
+   (a página rola), alto o suficiente no desktop e no app.
+
+   Reversível: basta remover este bloco para voltar ao comportamento 100vh.
+   ============================================================================ */
+html, body, .app,
+#screen-boot, #screen-daily,
+#screen-tutorial, #screen-level, #screen-name,
+#screen-game, #screen-dashboard, #screen-gameover {
+  min-height: 0 !important;
+}
