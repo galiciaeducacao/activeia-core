@@ -397,7 +397,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.4.1';
+  const CORE_VERSION = '1.4.2';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   const MAX_TOKENS = 1800;
@@ -1933,7 +1933,7 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
     // relatório DENTRO do próprio simulador com botão "Salvar PDF" que
     // dispara o diálogo nativo de impressão do celular (que tem opção
     // "Salvar como PDF"). Nada externo é aberto, nada pode ser bloqueado.
-    if (_isMobileEnv()) {
+    if (_isMobileEnv() || _isEmbedded()) {
       _tryShareOrShowReport(blob, filename, url);
       return;
     }
@@ -1985,8 +1985,8 @@ Weaknesses devem ser AVALIAÇÃO DO QUE O ESTUDANTE FEZ NESTE CASO, não checkli
   function _showReportInlineOverlay(url) {
     const root = document.getElementById('activeia-root');
     if (!root) {
-      // Sem root, não há onde renderizar — abre em aba nova como último recurso
-      window.open(url, '_blank');
+      // Sem root, não há onde renderizar — abre como último recurso
+      _openExternal(url);
       return;
     }
     // Guarda o HTML atual (o dossiê) pra restaurar quando o aluno voltar
@@ -2906,8 +2906,8 @@ ${hashtags}`;
               if (err && err.name === 'AbortError') return false; // usuário cancelou
               console.warn('[ActiveIA] Web Share da imagem falhou:', err);
             }
-            // Fallback: tenta abrir a imagem em nova aba (pode ser bloqueado)
-            const win = window.open(cardUrl, '_blank');
+            // Fallback: abre a imagem (window.open no desktop; navega o topo no app)
+            const win = _openExternal(cardUrl);
             if (!win) {
               showModal({
                 eyebrow: 'IMAGEM',
@@ -2916,7 +2916,7 @@ ${hashtags}`;
                 bodyIsHTML: false,
                 actions: [
                   { label: 'Fechar', close: true },
-                  { label: 'Abrir imagem', primary: true, close: true, onClick: () => { window.open(cardUrl, '_blank'); } }
+                  { label: 'Abrir imagem', primary: true, close: true, onClick: () => { _openExternal(cardUrl); } }
                 ]
               });
             }
@@ -2937,7 +2937,7 @@ ${hashtags}`;
         primary: true,
         close: false,
         onClick: () => {
-          window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank');
+          _openExternal('https://www.linkedin.com/feed/?shareActive=true');
           return false;
         }
       }
@@ -3456,6 +3456,22 @@ ${hashtags}`;
   // sinais confiáveis de dispositivo: user-agent (Android/iPhone/iPad/etc) e
   // tipo de ponteiro (coarse = dedo, fine = mouse). A largura do iframe não
   // entra mais no julgamento.
+  // v1.4.2: dentro de iframe (sempre o caso no WordPress e no app BuddyBoss)
+  // popups (window.open) e downloads diretos (a.download) costumam ser
+  // bloqueados. Detectar o contexto embedado para rotear pelos caminhos
+  // seguros (Web Share / overlay inline / navegação do topo).
+  function _isEmbedded() {
+    try { return window.self !== window.top; } catch (e) { return true; }
+  }
+  // Abre um link externo de forma resiliente: tenta window.open (desktop),
+  // e se for bloqueado (app/WebView) navega a janela do topo.
+  function _openExternal(url) {
+    try { var w = window.open(url, '_blank', 'noopener'); if (w) return true; } catch (e) {}
+    try { (window.top || window).location.href = url; return true; } catch (e) {}
+    try { window.location.href = url; return true; } catch (e) {}
+    return false;
+  }
+
   function _isMobileEnv() {
     try {
       var ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
