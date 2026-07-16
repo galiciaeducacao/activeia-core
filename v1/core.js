@@ -1,11 +1,21 @@
 /**
  * ============================================================================
- * ACTIVE IA — CORE v1.5.0
+ * ACTIVE IA — CORE v1.5.1
  * ============================================================================
  *
  * Núcleo JavaScript compartilhado da fábrica Active IA da Galícia Educação.
  *
  * Hospedagem-alvo: https://galiciaeducacao.github.io/activeia-core/v1/core.js
+ *
+ * PATCH 1.5.1 (robustez do streaming — detectado em teste real 16/jul):
+ *   1. WATCHDOG DE INATIVIDADE em callAPIStream: stream que fica 20s sem
+ *      entregar nenhum byte (conexão instável, proxy que segurou o corpo)
+ *      é abortado e a chamada refeita pela rota clássica automaticamente.
+ *      Novo callback opcional onReset() avisa o chamador para limpar o
+ *      texto parcial já exibido antes do fallback chegar. Sem isso, o
+ *      estudante ficava em "O cliente está falando..." para sempre.
+ *   2. parseJSON só roda quando o texto parece JSON — silencia o warn
+ *      "JSON parse failed" nas chamadas de texto livre do motor v2.
  *
  * v1.5.0 (STREAMING + critérios de recomendação sem buracos):
  *   1. NOVO: ActiveIA.callAPIStream({..., onDelta}) — chamada com streaming
@@ -461,7 +471,7 @@
   // SEÇÃO 1 — CONSTANTES GLOBAIS
   // ==========================================================================
 
-  const CORE_VERSION = '1.5.0';
+  const CORE_VERSION = '1.5.1';
   const API_URL = 'https://shy-night-916aactive-ai-proxy.galiciaeducacao.workers.dev';
   const MODEL = 'claude-sonnet-4-6';
   // v1.4.4: guarda o SIMULATOR_CONFIG passado ao init para permitir override
@@ -825,7 +835,7 @@
    * - Guard preventivo de conduta roda igual ao callAPI (resposta sintética
    *   sem consumir token).
    */
-  async function callAPIStream({ systemFixed, systemDynamic, messages, maxTokens, config, onDelta }) {
+  async function callAPIStream({ systemFixed, systemDynamic, messages, maxTokens, config, onDelta, onReset }) {
     // Guard preventivo (mesma lógica do callAPI)
     if (config) {
       const guardResult = _runPreflightGuards(messages, config);
@@ -892,16 +902,36 @@
       return { rawText: full.rawText, parsed: full.parsed, usage: full.usage, streamed: false, syntheticGuardResponse: full.syntheticGuardResponse };
     }
 
-    // SSE de verdade — parse incremental dos eventos da API Anthropic
+    // SSE de verdade — parse incremental dos eventos da API Anthropic.
+    // v1.5.1: WATCHDOG DE INATIVIDADE — stream que fica STALL_MS sem entregar
+    // NENHUM byte é considerado travado (conexão instável, proxy que segurou
+    // o corpo, Wi-Fi que caiu sem RST). Sem isso, o estudante espera para
+    // sempre. Ao detectar: aborta o stream, avisa o chamador via onReset()
+    // (para limpar o texto parcial já exibido) e refaz pela rota clássica.
+    const STALL_MS = 20000;
     let fullText = '';
     let usage = null;
+    let stalled = false;
     try {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
       let done = false;
       while (!done) {
-        const chunk = await reader.read();
+        let stallTimer = null;
+        const chunk = await Promise.race([
+          reader.read(),
+          new Promise(function(resolve) {
+            stallTimer = setTimeout(function() { resolve({ __stalled: true }); }, STALL_MS);
+          })
+        ]);
+        if (stallTimer) clearTimeout(stallTimer);
+        if (chunk && chunk.__stalled) {
+          stalled = true;
+          try { reader.cancel(); } catch (e) {}
+          try { if (controller) controller.abort(); } catch (e) {}
+          break;
+        }
         done = chunk.done;
         if (chunk.value) buf += decoder.decode(chunk.value, { stream: true });
         let sep;
@@ -932,11 +962,27 @@
     }
     if (timeoutId) clearTimeout(timeoutId);
 
+    // Stream travou no meio: refaz pela rota clássica (com retry/timeout da
+    // v1.4.4). O texto parcial exibido é descartado via onReset() — o
+    // fallback gera uma resposta nova completa.
+    if (stalled) {
+      console.warn('[ActiveIA] Stream sem dados há ' + (STALL_MS / 1000) + 's — refazendo pela rota clássica.');
+      if (typeof onReset === 'function') { try { onReset(); } catch (e) {} }
+      const full = await callAPI({ systemFixed, systemDynamic, messages, maxTokens, config });
+      if (typeof onDelta === 'function' && full && full.rawText) {
+        try { onDelta(full.rawText); } catch (e) {}
+      }
+      return { rawText: full.rawText, parsed: full.parsed, usage: full.usage, streamed: false, syntheticGuardResponse: full.syntheticGuardResponse };
+    }
+
     _connection.lastError = null;
     _connection.lastApiOk = Date.now();
     _notifyConnectionChange();
 
-    return { rawText: fullText, parsed: parseJSON(fullText), usage: usage, streamed: true };
+    // v1.5.1: só tenta parsear JSON quando o texto parece JSON — evita o
+    // warn "JSON parse failed" em chamadas de texto livre (ator do motor v2).
+    const looksJson = /^\s*[\[{]/.test(fullText) || fullText.indexOf('```') !== -1;
+    return { rawText: fullText, parsed: looksJson ? parseJSON(fullText) : null, usage: usage, streamed: true };
   }
 
   // ==========================================================================
